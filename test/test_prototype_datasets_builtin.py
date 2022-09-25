@@ -22,7 +22,7 @@ assert_samples_equal = functools.partial(
 
 
 def extract_datapipes(dp):
-    return get_all_graph_pipes(traverse(dp, only_datapipe=True))
+    return get_all_graph_pipes(traverse(dp))
 
 
 @pytest.fixture(autouse=True)
@@ -101,12 +101,11 @@ class TestCommon:
 
         next(iter(dataset.map(transforms.Identity())))
 
-    @pytest.mark.parametrize("only_datapipe", [False, True])
     @parametrize_dataset_mocks(DATASET_MOCKS)
-    def test_traversable(self, dataset_mock, config, only_datapipe):
+    def test_traversable(self, dataset_mock, config):
         dataset, _ = dataset_mock.load(config)
 
-        traverse(dataset, only_datapipe=only_datapipe)
+        traverse(dataset)
 
     @parametrize_dataset_mocks(DATASET_MOCKS)
     def test_serializable(self, dataset_mock, config):
