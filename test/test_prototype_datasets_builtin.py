@@ -22,7 +22,7 @@ assert_samples_equal = functools.partial(
 
 
 def extract_datapipes(dp):
-    return get_all_graph_pipes(traverse(dp, only_datapipe=True))
+    return get_all_graph_pipes(traverse(dp))
 
 
 @pytest.fixture(autouse=True)
