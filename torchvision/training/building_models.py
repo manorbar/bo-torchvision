@@ -1,13 +1,11 @@
-
-
 import os
 import torch
 
 from copy import deepcopy
 
 from torchvision import models
-from torchvision.models.utils import load_state_dict_layer_by_layer, freeze_models
-from torchvision.models.detection.backbone_utils import fpn_factory
+from torchvision.training.utils import load_state_dict_layer_by_layer, freeze_models
+from torchvision.training.fpn_factory import fpn_factory
 from torchvision.models.detection.mask_rcnn import MaskRCNN
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
@@ -25,11 +23,13 @@ class MaskRCNNInitNamespace:
 
         # Replace mask predictor with the right number of classes
         in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-        model.roi_heads.mask_predictor = models.detection.mask_rcnn.MaskRCNNPredictor(in_features_mask, 256,                                                                       num_classes)
+        model.roi_heads.mask_predictor = models.detection.mask_rcnn.MaskRCNNPredictor(in_features_mask, 256,
+                                                                                      num_classes)
 
     @staticmethod
     def match_pretrained_rgb_mrcnn_state_dict_to_rgbd_late_fusion_mrcnn(pretrained_state_dict, input_type="RGB"):
-        layer_types_to_update = ["rgb", "depth"] if input_type == "Combined" else ["rgb"] if input_type == "RGB" else ["depth"]
+        layer_types_to_update = ["rgb", "depth"] if input_type == "Combined" else ["rgb"] if input_type == "RGB" else [
+            "depth"]
 
         def update_inter_layer(k, d, layer_types):
             for lt in layer_types:
@@ -40,7 +40,8 @@ class MaskRCNNInitNamespace:
 
         new_dict = deepcopy(pretrained_state_dict)
         for k, v in pretrained_state_dict.items():
-            if k.startswith('backbone.body') and 'inter_rgb' not in k and 'inter_depth' not in k and input_type == "Combined":
+            if k.startswith(
+                    'backbone.body') and 'inter_rgb' not in k and 'inter_depth' not in k and input_type == "Combined":
                 update_inter_layer(k, new_dict, layer_types_to_update)
         pretrained_state_dict = new_dict
         return pretrained_state_dict
@@ -75,7 +76,7 @@ class MaskRCNNInitNamespace:
             output_size = output_size if output_size else 14
             sampling_ratio = sampling_ratio if sampling_ratio else 2
             mask_roi_pool = MultiScaleRoIAlign(featmap_names=featmap_names, output_size=output_size,
-                sampling_ratio=sampling_ratio)
+                                               sampling_ratio=sampling_ratio)
         return mask_roi_pool
 
     @staticmethod
@@ -92,8 +93,10 @@ class MaskRCNNInitNamespace:
         additional_backbone_params = backbone_params.get("additional_backbone")
         valid_main_backbone_params = isinstance(main_backbone_params, dict)
         valid_additional_backbone_params = isinstance(additional_backbone_params, dict)
-        rgb_imagenet_pretrained = not use_pretrained_mrcnn and main_backbone_params.get("pretrained") if valid_main_backbone_params else False
-        depth_imagenet_pretrained = not use_pretrained_mrcnn and additional_backbone_params.get("pretrained") if valid_additional_backbone_params else False
+        rgb_imagenet_pretrained = not use_pretrained_mrcnn and main_backbone_params.get(
+            "pretrained") if valid_main_backbone_params else False
+        depth_imagenet_pretrained = not use_pretrained_mrcnn and additional_backbone_params.get(
+            "pretrained") if valid_additional_backbone_params else False
 
         if valid_additional_backbone_params and backbone_params.get("fusion_type"):
             new_backbone_params["rgb_backbone_params"] = main_backbone_params
@@ -146,7 +149,8 @@ class MaskRCNNInitNamespace:
         print(f"Creating MaskRCNN model")
         model = MaskRCNN(
             fpn_factory(
-                backbone_params=MaskRCNNInitNamespace.adjust_backbone_params(cfg['backbone_params'], use_pretrained_mrcnn),
+                backbone_params=MaskRCNNInitNamespace.adjust_backbone_params(cfg['backbone_params'],
+                                                                             use_pretrained_mrcnn),
                 input_type=input_type,
                 fusion_type=config["backbone_params"].get("fusion_type") if config.get("backbone_params") else None
             ),
@@ -185,9 +189,12 @@ class MaskRCNNInitNamespace:
 
         # Freeze required model layers
         freeze_models(
-            model.backbone.body.inter_rgb if input_type == "Combined" and cfg["backbone_params"]["main_backbone"].get("freeze") else None,
-            model.backbone.body.inter_depth if input_type == "Combined" and cfg["backbone_params"]["additional_backbone"].get("freeze") else None,
-            model.backbone.body if input_type != "Combined" and cfg["backbone_params"]["main_backbone"].get("freeze") else None,
+            model.backbone.body.inter_rgb if input_type == "Combined" and cfg["backbone_params"]["main_backbone"].get(
+                "freeze") else None,
+            model.backbone.body.inter_depth if input_type == "Combined" and cfg["backbone_params"][
+                "additional_backbone"].get("freeze") else None,
+            model.backbone.body if input_type != "Combined" and cfg["backbone_params"]["main_backbone"].get(
+                "freeze") else None,
             model.backbone.fpn if cfg["backbone_params"].get("freeze_fpn") else None,
             model.rpn if cfg["anchor_generator_params"].get("freeze") else None,
         )

@@ -1,4 +1,6 @@
+import os
 import warnings
+from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Union
 
 from torch import nn, Tensor
@@ -9,6 +11,8 @@ from torchvision.ops.feature_pyramid_network import ExtraFPNBlock, FeaturePyrami
 from .. import mobilenet, resnet
 from .._api import _get_enum_from_fn, WeightsEnum
 from .._utils import handle_legacy_interface, IntermediateLayerGetter
+from ..model_utils import IntermediateLayerGetterLateFusionConcat, IntermediateLayerGetterLateFusionSummation, \
+    IntermediateLayerGetterLateAttentionFusion
 
 
 class BackboneWithFPN(nn.Module):

@@ -1,3 +1,5 @@
+from torchvision.models.detection.backbone_utils import ResnetFPNNamespace
+
 fpn_registry = {
     "RGB": ResnetFPNNamespace.SingleBackboneNamespace.resnet_rgb_fpn_backbone,
     "Depth": ResnetFPNNamespace.SingleBackboneNamespace.resnet_depth_fpn_backbone,
@@ -8,6 +10,9 @@ fpn_registry = {
         "Attention": ResnetFPNNamespace.DoubleBackboneNamespace.resnet_attention_fusion_fpn_backbone,
     }
 }
+
+input_types = {"RGB", "RGBD", "Depth", "Combined"}
+fusion_types = {"Sum", "Concat", "Attention"}
 
 
 def fpn_factory(backbone_params, input_type, fusion_type):
