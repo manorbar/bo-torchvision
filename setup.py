@@ -61,6 +61,8 @@ requirements = [
     "typing_extensions",
     "numpy",
     "requests",
+    "scikit-image",
+    "tqdm",
     pytorch_dep,
 ]
 
@@ -134,9 +136,9 @@ def get_extensions():
         os.path.join(extensions_dir, "ops", "*.cpp")
     )
     source_cpu = (
-        glob.glob(os.path.join(extensions_dir, "ops", "autograd", "*.cpp"))
-        + glob.glob(os.path.join(extensions_dir, "ops", "cpu", "*.cpp"))
-        + glob.glob(os.path.join(extensions_dir, "ops", "quantized", "cpu", "*.cpp"))
+            glob.glob(os.path.join(extensions_dir, "ops", "autograd", "*.cpp"))
+            + glob.glob(os.path.join(extensions_dir, "ops", "cpu", "*.cpp"))
+            + glob.glob(os.path.join(extensions_dir, "ops", "quantized", "cpu", "*.cpp"))
     )
 
     print("Compiling extensions with following flags:")
@@ -334,9 +336,9 @@ def get_extensions():
     # Locating nvjpeg
     # Should be included in CUDA_HOME for CUDA >= 10.1, which is the minimum version we have in the CI
     nvjpeg_found = (
-        extension is CUDAExtension
-        and CUDA_HOME is not None
-        and os.path.exists(os.path.join(CUDA_HOME, "include", "nvjpeg.h"))
+            extension is CUDAExtension
+            and CUDA_HOME is not None
+            and os.path.exists(os.path.join(CUDA_HOME, "include", "nvjpeg.h"))
     )
 
     use_nvjpeg = use_nvjpeg and nvjpeg_found
@@ -349,9 +351,9 @@ def get_extensions():
 
     image_path = os.path.join(extensions_dir, "io", "image")
     image_src = (
-        glob.glob(os.path.join(image_path, "*.cpp"))
-        + glob.glob(os.path.join(image_path, "cpu", "*.cpp"))
-        + glob.glob(os.path.join(image_path, "cuda", "*.cpp"))
+            glob.glob(os.path.join(image_path, "*.cpp"))
+            + glob.glob(os.path.join(image_path, "cpu", "*.cpp"))
+            + glob.glob(os.path.join(image_path, "cuda", "*.cpp"))
     )
 
     if use_png or use_jpeg:
@@ -470,18 +472,18 @@ def get_extensions():
     # TORCHVISION_INCLUDE and TORCHVISION_LIBRARY should include the location to
     # video codec header files and libraries respectively.
     video_codec_found = (
-        extension is CUDAExtension
-        and CUDA_HOME is not None
-        and any([os.path.exists(os.path.join(folder, "cuviddec.h")) for folder in vision_include])
-        and any([os.path.exists(os.path.join(folder, "nvcuvid.h")) for folder in vision_include])
-        and any([os.path.exists(os.path.join(folder, "libnvcuvid.so")) for folder in library_dirs])
+            extension is CUDAExtension
+            and CUDA_HOME is not None
+            and any([os.path.exists(os.path.join(folder, "cuviddec.h")) for folder in vision_include])
+            and any([os.path.exists(os.path.join(folder, "nvcuvid.h")) for folder in vision_include])
+            and any([os.path.exists(os.path.join(folder, "libnvcuvid.so")) for folder in library_dirs])
     )
 
     use_video_codec = use_video_codec and video_codec_found
     if (
-        use_video_codec
-        and use_ffmpeg
-        and any([os.path.exists(os.path.join(folder, "libavcodec", "bsf.h")) for folder in ffmpeg_include_dir])
+            use_video_codec
+            and use_ffmpeg
+            and any([os.path.exists(os.path.join(folder, "libavcodec", "bsf.h")) for folder in ffmpeg_include_dir])
     ):
         print("Building torchvision with video codec support")
         gpu_decoder_path = os.path.join(extensions_dir, "io", "decoder", "gpu")
@@ -515,9 +517,10 @@ def get_extensions():
     else:
         print("Building torchvision without video codec support")
         if (
-            use_video_codec
-            and use_ffmpeg
-            and not any([os.path.exists(os.path.join(folder, "libavcodec", "bsf.h")) for folder in ffmpeg_include_dir])
+                use_video_codec
+                and use_ffmpeg
+                and not any(
+            [os.path.exists(os.path.join(folder, "libavcodec", "bsf.h")) for folder in ffmpeg_include_dir])
         ):
             print(
                 "  The installed version of ffmpeg is missing the header file 'bsf.h' which is "
