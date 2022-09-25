@@ -94,16 +94,18 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
 
 
-def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs):
-    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor]) -> Tensor
+def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_loss=True):
+    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor], bool) -> Tuple[Tensor, Tensor]
     """
     Args:
         proposals (list[BoxList])
         mask_logits (Tensor)
         targets (list[BoxList])
+        use_edge_loss (boolean): signals if to use edge loss
 
     Return:
-        mask_loss (Tensor): scalar tensor containing the loss
+                mask_loss (Tensor): scalar tensor containing the mask loss
+        edge_loss (Tensor): scalar tensor containing the edge loss only returned if use_edge_loss is True
     """
 
     discretization_size = mask_logits.shape[-1]
@@ -123,7 +125,29 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
     mask_loss = F.binary_cross_entropy_with_logits(
         mask_logits[torch.arange(labels.shape[0], device=labels.device), labels], mask_targets
     )
-    return mask_loss
+
+    # if use_edge_loss is given calculate edge loss and return it, else return None
+    edge_loss = None
+    if use_edge_loss:
+        # create edge filters
+        sobel_f_v = torch.tensor([[[1., 2., 1.], [0., 0., 0.], [-1., -2., -1.]]])
+        sobel_f_h = torch.tensor([[[1., 0., -1.], [2., 0., -2.], [1., 0., -1.]]])
+        filters = torch.cat((sobel_f_v, sobel_f_h)).unsqueeze(0)
+
+        # reshape mask targets and predictions and run edge detector on them
+        mt = mask_targets.unsqueeze(1)
+        mt = mt.expand(mt.shape[0], 2, mt.shape[2], mt.shape[3])
+        edge_targets = F.conv2d(mt, filters.cuda(), stride=1, padding=1).squeeze(1)
+        mp = mask_logits[torch.arange(labels.shape[0], device=labels.device), labels].unsqueeze(1)
+        # use sigmoid to squeeze output to be between 0 and 1
+        mp = torch.sigmoid(mp)
+        mp = mp.expand(mp.shape[0], 2, mp.shape[2], mp.shape[3])
+        edge_predictions = F.conv2d(mp, filters.cuda(), stride=1, padding=1).squeeze(1)
+
+        # add L2 loss between target edges to predection edges
+        edge_loss = torch.mean(torch.pow(torch.abs(edge_predictions - edge_targets), 2), )
+
+    return mask_loss, edge_loss
 
 
 def keypoints_to_heatmap(keypoints, rois, heatmap_size):
@@ -163,7 +187,7 @@ def keypoints_to_heatmap(keypoints, rois, heatmap_size):
 
 
 def _onnx_heatmaps_to_keypoints(
-    maps, maps_i, roi_map_width, roi_map_height, widths_i, heights_i, offset_x_i, offset_y_i
+        maps, maps_i, roi_map_width, roi_map_height, widths_i, heights_i, offset_x_i, offset_y_i
 ):
     num_keypoints = torch.scalar_tensor(maps.size(1), dtype=torch.int64)
 
@@ -215,7 +239,7 @@ def _onnx_heatmaps_to_keypoints(
 
 @torch.jit._script_if_tracing
 def _onnx_heatmaps_to_keypoints_loop(
-    maps, rois, widths_ceil, heights_ceil, widths, heights, offset_x, offset_y, num_keypoints
+        maps, rois, widths_ceil, heights_ceil, widths, heights, offset_x, offset_y, num_keypoints
 ):
     xy_preds = torch.zeros((0, 3, int(num_keypoints)), dtype=torch.float32, device=maps.device)
     end_scores = torch.zeros((0, int(num_keypoints)), dtype=torch.float32, device=maps.device)
@@ -421,7 +445,7 @@ def paste_mask_in_image(mask, box, im_h, im_w):
     y_0 = max(box[1], 0)
     y_1 = min(box[3] + 1, im_h)
 
-    im_mask[y_0:y_1, x_0:x_1] = mask[(y_0 - box[1]) : (y_1 - box[1]), (x_0 - box[0]) : (x_1 - box[0])]
+    im_mask[y_0:y_1, x_0:x_1] = mask[(y_0 - box[1]): (y_1 - box[1]), (x_0 - box[0]): (x_1 - box[0])]
     return im_mask
 
 
@@ -446,7 +470,7 @@ def _onnx_paste_mask_in_image(mask, box, im_h, im_w):
     y_0 = torch.max(torch.cat((box[1].unsqueeze(0), zero)))
     y_1 = torch.min(torch.cat((box[3].unsqueeze(0) + one, im_h.unsqueeze(0))))
 
-    unpaded_im_mask = mask[(y_0 - box[1]) : (y_1 - box[1]), (x_0 - box[0]) : (x_1 - box[0])]
+    unpaded_im_mask = mask[(y_0 - box[1]): (y_1 - box[1]), (x_0 - box[0]): (x_1 - box[0])]
 
     # TODO : replace below with a dynamic padding when support is added in ONNX
 
@@ -497,27 +521,28 @@ class RoIHeads(nn.Module):
     }
 
     def __init__(
-        self,
-        box_roi_pool,
-        box_head,
-        box_predictor,
-        # Faster R-CNN training
-        fg_iou_thresh,
-        bg_iou_thresh,
-        batch_size_per_image,
-        positive_fraction,
-        bbox_reg_weights,
-        # Faster R-CNN inference
-        score_thresh,
-        nms_thresh,
-        detections_per_img,
-        # Mask
-        mask_roi_pool=None,
-        mask_head=None,
-        mask_predictor=None,
-        keypoint_roi_pool=None,
-        keypoint_head=None,
-        keypoint_predictor=None,
+            self,
+            box_roi_pool,
+            box_head,
+            box_predictor,
+            # Faster R-CNN training
+            fg_iou_thresh,
+            bg_iou_thresh,
+            batch_size_per_image,
+            positive_fraction,
+            bbox_reg_weights,
+            # Faster R-CNN inference
+            score_thresh,
+            nms_thresh,
+            detections_per_img,
+            # Mask
+            mask_roi_pool=None,
+            mask_head=None,
+            mask_predictor=None,
+            keypoint_roi_pool=None,
+            keypoint_head=None,
+            keypoint_predictor=None,
+            use_edge_loss=False,
     ):
         super().__init__()
 
@@ -546,6 +571,8 @@ class RoIHeads(nn.Module):
         self.keypoint_roi_pool = keypoint_roi_pool
         self.keypoint_head = keypoint_head
         self.keypoint_predictor = keypoint_predictor
+
+        self.use_edge_loss: bool = use_edge_loss
 
     def has_mask(self):
         if self.mask_roi_pool is None:
@@ -628,9 +655,9 @@ class RoIHeads(nn.Module):
                 raise ValueError("Every element of targets should have a masks key")
 
     def select_training_samples(
-        self,
-        proposals,  # type: List[Tensor]
-        targets,  # type: Optional[List[Dict[str, Tensor]]]
+            self,
+            proposals,  # type: List[Tensor]
+            targets,  # type: Optional[List[Dict[str, Tensor]]]
     ):
         # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor], List[Tensor]]
         self.check_targets(targets)
@@ -666,11 +693,11 @@ class RoIHeads(nn.Module):
         return proposals, matched_idxs, labels, regression_targets
 
     def postprocess_detections(
-        self,
-        class_logits,  # type: Tensor
-        box_regression,  # type: Tensor
-        proposals,  # type: List[Tensor]
-        image_shapes,  # type: List[Tuple[int, int]]
+            self,
+            class_logits,  # type: Tensor
+            box_regression,  # type: Tensor
+            proposals,  # type: List[Tensor]
+            image_shapes,  # type: List[Tuple[int, int]]
     ):
         # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]
         device = class_logits.device
@@ -725,11 +752,11 @@ class RoIHeads(nn.Module):
         return all_boxes, all_scores, all_labels
 
     def forward(
-        self,
-        features,  # type: Dict[str, Tensor]
-        proposals,  # type: List[Tensor]
-        image_shapes,  # type: List[Tuple[int, int]]
-        targets=None,  # type: Optional[List[Dict[str, Tensor]]]
+            self,
+            features,  # type: Dict[str, Tensor]
+            proposals,  # type: List[Tensor]
+            image_shapes,  # type: List[Tuple[int, int]]
+            targets=None,  # type: Optional[List[Dict[str, Tensor]]]
     ):
         # type: (...) -> Tuple[List[Dict[str, Tensor]], Dict[str, Tensor]]
         """
@@ -807,14 +834,19 @@ class RoIHeads(nn.Module):
             else:
                 raise Exception("Expected mask_roi_pool to be not None")
 
-            loss_mask = {}
+            loss_mask: Dict = {}
+            loss_edge: Dict = {}
             if self.training:
                 if targets is None or pos_matched_idxs is None or mask_logits is None:
                     raise ValueError("targets, pos_matched_idxs, mask_logits cannot be None when training")
 
                 gt_masks = [t["masks"] for t in targets]
                 gt_labels = [t["labels"] for t in targets]
-                rcnn_loss_mask = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels, pos_matched_idxs)
+                rcnn_loss_mask, loss_edge = maskrcnn_loss(
+                    mask_logits, mask_proposals,
+                    gt_masks, gt_labels, pos_matched_idxs, self.use_edge_loss)
+                if self.use_edge_loss:
+                    loss_edge = {"loss_edge": loss_edge}
                 loss_mask = {"loss_mask": rcnn_loss_mask}
             else:
                 labels = [r["labels"] for r in result]
@@ -823,13 +855,15 @@ class RoIHeads(nn.Module):
                     r["masks"] = mask_prob
 
             losses.update(loss_mask)
+            if self.use_edge_loss:
+                losses.update(loss_edge)
 
         # keep none checks in if conditional so torchscript will conditionally
         # compile each branch
         if (
-            self.keypoint_roi_pool is not None
-            and self.keypoint_head is not None
-            and self.keypoint_predictor is not None
+                self.keypoint_roi_pool is not None
+                and self.keypoint_head is not None
+                and self.keypoint_predictor is not None
         ):
             keypoint_proposals = [p["boxes"] for p in result]
             if self.training:
