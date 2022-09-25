@@ -1,5 +1,5 @@
 import numbers
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -155,7 +155,7 @@ def pad(
 
     if not isinstance(padding, (numbers.Number, tuple, list)):
         raise TypeError("Got inappropriate padding arg")
-    if fill is not None and not isinstance(fill, (numbers.Number, tuple, list)):
+    if not isinstance(fill, (numbers.Number, tuple, list)):
         raise TypeError("Got inappropriate fill arg")
     if not isinstance(padding_mode, str):
         raise TypeError("Got inappropriate padding_mode arg")
@@ -260,15 +260,15 @@ def _parse_fill(
 ) -> Dict[str, Optional[Union[float, List[float], Tuple[float, ...]]]]:
 
     # Process fill color for affine transforms
-    num_channels = get_image_num_channels(img)
+    num_bands = len(img.getbands())
     if fill is None:
         fill = 0
-    if isinstance(fill, (int, float)) and num_channels > 1:
-        fill = tuple([fill] * num_channels)
+    if isinstance(fill, (int, float)) and num_bands > 1:
+        fill = tuple([fill] * num_bands)
     if isinstance(fill, (list, tuple)):
-        if len(fill) != num_channels:
-            msg = "The number of elements in 'fill' does not match the number of channels of the image ({} != {})"
-            raise ValueError(msg.format(len(fill), num_channels))
+        if len(fill) != num_bands:
+            msg = "The number of elements in 'fill' does not match the number of bands of the image ({} != {})"
+            raise ValueError(msg.format(len(fill), num_bands))
 
         fill = tuple(fill)
 
@@ -286,7 +286,7 @@ def affine(
     img: Image.Image,
     matrix: List[float],
     interpolation: int = _pil_constants.NEAREST,
-    fill: Optional[Union[int, float, Sequence[int], Sequence[float]]] = None,
+    fill: Optional[Union[float, List[float], Tuple[float, ...]]] = 0,
 ) -> Image.Image:
 
     if not _is_pil_image(img):
@@ -304,7 +304,7 @@ def rotate(
     interpolation: int = _pil_constants.NEAREST,
     expand: bool = False,
     center: Optional[Tuple[int, int]] = None,
-    fill: Optional[Union[int, float, Sequence[int], Sequence[float]]] = None,
+    fill: Optional[Union[float, List[float], Tuple[float, ...]]] = 0,
 ) -> Image.Image:
 
     if not _is_pil_image(img):
@@ -317,9 +317,9 @@ def rotate(
 @torch.jit.unused
 def perspective(
     img: Image.Image,
-    perspective_coeffs: List[float],
+    perspective_coeffs: float,
     interpolation: int = _pil_constants.BICUBIC,
-    fill: Optional[Union[int, float, Sequence[int], Sequence[float]]] = None,
+    fill: Optional[Union[float, List[float], Tuple[float, ...]]] = 0,
 ) -> Image.Image:
 
     if not _is_pil_image(img):

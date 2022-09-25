@@ -1,11 +1,6 @@
 #!/bin/bash
 set -ex
 
-PARALLELISM=8
-if [ -n "$MAX_JOBS" ]; then
-    PARALLELISM=$MAX_JOBS
-fi
-
 if [[ "$(uname)" != Darwin && "$OSTYPE" != "msys" ]]; then
     eval "$(./conda/bin/conda shell.bash hook)"
     conda activate ./env
@@ -15,44 +10,26 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . "$script_dir/pkg_helpers.bash"
 
 export BUILD_TYPE=conda
-setup_env
+setup_env 0.8.0
 export SOURCE_ROOT_DIR="$PWD"
 setup_conda_pytorch_constraint
 setup_conda_cudatoolkit_plain_constraint
 
 if [[ "$OSTYPE" == "msys" ]]; then
-    conda install -yq conda-build cmake future
+    conda install -yq conda-build cmake pillow future
     pip install dataclasses
 fi
 
 setup_visual_studio_constraint
 setup_junit_results_folder
 
-if [[ "$(uname)" == Darwin ]]; then
-  # TODO: this can be removed as soon as mkl's CMake support works with clang
-  #  see https://github.com/pytorch/vision/pull/4203 for details
-  MKL_CONSTRAINT='mkl==2021.2.0'
-else
-  MKL_CONSTRAINT=''
-fi
-
-if [[ $CONDA_BUILD_VARIANT == "cpu" ]]; then
-  PYTORCH_MUTEX_CONSTRAINT='pytorch-mutex=1.0=cpu'
-else
-  PYTORCH_MUTEX_CONSTRAINT=''
-fi
-
-conda install -yq \pytorch=$PYTORCH_VERSION $CONDA_CUDATOOLKIT_CONSTRAINT $PYTORCH_MUTEX_CONSTRAINT $MKL_CONSTRAINT numpy -c nvidia -c "pytorch-${UPLOAD_CHANNEL}"
+conda install -yq pytorch=$PYTORCH_VERSION $CONDA_CUDATOOLKIT_CONSTRAINT $CONDA_CPUONLY_FEATURE  -c "pytorch-${UPLOAD_CHANNEL}"
 TORCH_PATH=$(dirname $(python -c "import torch; print(torch.__file__)"))
 
 if [[ "$(uname)" == Darwin || "$OSTYPE" == "msys" ]]; then
     conda install -yq libpng jpeg
 else
     yum install -y libpng-devel libjpeg-turbo-devel
-fi
-
-if [[ "$OSTYPE" == "msys" ]]; then
-    source .circleci/unittest/windows/scripts/set_cuda_envs.sh
 fi
 
 mkdir cpp_build
@@ -63,11 +40,11 @@ cmake .. -DTorch_DIR=$TORCH_PATH/share/cmake/Torch -DWITH_CUDA=$CMAKE_USE_CUDA
 
 # Compile and install libtorchvision
 if [[ "$OSTYPE" == "msys" ]]; then
-    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_cmake.bat" $PARALLELISM
+    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_cmake.bat"
     CONDA_PATH=$(dirname $(which python))
     cp -r "C:/Program Files (x86)/torchvision/include/torchvision" $CONDA_PATH/include
 else
-    make -j$PARALLELISM
+    make
     make install
 
     if [[ "$(uname)" == Darwin ]]; then
@@ -94,12 +71,12 @@ cp fasterrcnn_resnet50_fpn.pt build
 cd build
 cmake .. -DTorch_DIR=$TORCH_PATH/share/cmake/Torch -DWITH_CUDA=$CMAKE_USE_CUDA
 if [[ "$OSTYPE" == "msys" ]]; then
-    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_frcnn.bat" $PARALLELISM
+    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_frcnn.bat"
     mv fasterrcnn_resnet50_fpn.pt Release
     cd Release
-    export PATH=$(cygpath -w "C:/Program Files/NVIDIA Corporation/NvToolsExt/bin/x64"):$(cygpath -w "C:/Program Files (x86)/torchvision/bin"):$(cygpath -w $TORCH_PATH)/lib:$PATH
+    export PATH=$(cygpath "C:/Program Files (x86)/torchvision/bin"):$(cygpath $TORCH_PATH)/lib:$PATH
 else
-    make -j$PARALLELISM
+    make
 fi
 
 # Run traced program
@@ -108,21 +85,16 @@ fi
 # Compile and run the CPP example
 popd
 cd examples/cpp/hello_world
+
 mkdir build
-
-# Trace model
-python trace_model.py
-cp resnet18.pt build
-
 cd build
 cmake .. -DTorch_DIR=$TORCH_PATH/share/cmake/Torch
 
 if [[ "$OSTYPE" == "msys" ]]; then
-    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_cpp_example.bat" $PARALLELISM
-    mv resnet18.pt Release
+    "$script_dir/windows/internal/vc_env_helper.bat" "$script_dir/windows/internal/build_cpp_example.bat"
     cd Release
 else
-    make -j$PARALLELISM
+    make
 fi
 
 # Run CPP example

@@ -9,7 +9,7 @@ import torch.utils.data
 import torchvision
 import utils
 from torch import nn
-from train import evaluate, load_data, train_one_epoch
+from train import train_one_epoch, evaluate, load_data
 
 
 def main(args):
@@ -46,11 +46,7 @@ def main(args):
 
     print("Creating model", args.model)
     # when training quantized models, we always start from a pre-trained fp32 reference model
-    prefix = "quantized_"
-    model_name = args.model
-    if not model_name.startswith(prefix):
-        model_name = prefix + model_name
-    model = torchvision.models.get_model(model_name, weights=args.weights, quantize=args.test_only)
+    model = torchvision.models.quantization.__dict__[args.model](weights=args.weights, quantize=args.test_only)
     model.to(device)
 
     if not (args.test_only or args.post_training_quantize):

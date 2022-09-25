@@ -2,7 +2,21 @@ import csv
 import functools
 import pathlib
 import pickle
-from typing import Any, BinaryIO, Callable, cast, Dict, IO, Iterator, List, Sequence, Sized, Tuple, TypeVar, Union
+from typing import BinaryIO
+from typing import (
+    Sequence,
+    Callable,
+    Union,
+    Any,
+    Tuple,
+    TypeVar,
+    List,
+    Iterator,
+    Dict,
+    IO,
+    Sized,
+)
+from typing import cast
 
 import torch
 import torch.distributed as dist

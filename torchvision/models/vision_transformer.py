@@ -1,7 +1,7 @@
 import math
 from collections import OrderedDict
 from functools import partial
-from typing import Any, Callable, Dict, List, NamedTuple, Optional
+from typing import Any, Callable, List, NamedTuple, Optional, Dict
 
 import torch
 import torch.nn as nn
@@ -9,9 +9,9 @@ import torch.nn as nn
 from ..ops.misc import Conv2dNormActivation, MLP
 from ..transforms._presets import ImageClassification, InterpolationMode
 from ..utils import _log_api_usage_once
-from ._api import register_model, Weights, WeightsEnum
+from ._api import WeightsEnum, Weights
 from ._meta import _IMAGENET_CATEGORIES
-from ._utils import _ovewrite_named_param, handle_legacy_interface
+from ._utils import handle_legacy_interface, _ovewrite_named_param
 
 
 __all__ = [
@@ -268,8 +268,8 @@ class VisionTransformer(nn.Module):
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         n, c, h, w = x.shape
         p = self.patch_size
-        torch._assert(h == self.image_size, f"Wrong image height! Expected {self.image_size} but got {h}!")
-        torch._assert(w == self.image_size, f"Wrong image width! Expected {self.image_size} but got {w}!")
+        torch._assert(h == self.image_size, "Wrong image height!")
+        torch._assert(w == self.image_size, "Wrong image width!")
         n_h = h // p
         n_w = w // p
 
@@ -596,7 +596,6 @@ class ViT_H_14_Weights(WeightsEnum):
     DEFAULT = IMAGENET1K_SWAG_E2E_V1
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", ViT_B_16_Weights.IMAGENET1K_V1))
 def vit_b_16(*, weights: Optional[ViT_B_16_Weights] = None, progress: bool = True, **kwargs: Any) -> VisionTransformer:
     """
@@ -630,7 +629,6 @@ def vit_b_16(*, weights: Optional[ViT_B_16_Weights] = None, progress: bool = Tru
     )
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", ViT_B_32_Weights.IMAGENET1K_V1))
 def vit_b_32(*, weights: Optional[ViT_B_32_Weights] = None, progress: bool = True, **kwargs: Any) -> VisionTransformer:
     """
@@ -664,7 +662,6 @@ def vit_b_32(*, weights: Optional[ViT_B_32_Weights] = None, progress: bool = Tru
     )
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", ViT_L_16_Weights.IMAGENET1K_V1))
 def vit_l_16(*, weights: Optional[ViT_L_16_Weights] = None, progress: bool = True, **kwargs: Any) -> VisionTransformer:
     """
@@ -698,7 +695,6 @@ def vit_l_16(*, weights: Optional[ViT_L_16_Weights] = None, progress: bool = Tru
     )
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", ViT_L_32_Weights.IMAGENET1K_V1))
 def vit_l_32(*, weights: Optional[ViT_L_32_Weights] = None, progress: bool = True, **kwargs: Any) -> VisionTransformer:
     """
@@ -732,8 +728,6 @@ def vit_l_32(*, weights: Optional[ViT_L_32_Weights] = None, progress: bool = Tru
     )
 
 
-@register_model()
-@handle_legacy_interface(weights=("pretrained", None))
 def vit_h_14(*, weights: Optional[ViT_H_14_Weights] = None, progress: bool = True, **kwargs: Any) -> VisionTransformer:
     """
     Constructs a vit_h_14 architecture from

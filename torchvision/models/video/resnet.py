@@ -1,14 +1,14 @@
 from functools import partial
-from typing import Any, Callable, List, Optional, Sequence, Tuple, Type, Union
+from typing import Tuple, Optional, Callable, List, Sequence, Type, Any, Union
 
 import torch.nn as nn
 from torch import Tensor
 
 from ...transforms._presets import VideoClassification
 from ...utils import _log_api_usage_once
-from .._api import register_model, Weights, WeightsEnum
+from .._api import WeightsEnum, Weights
 from .._meta import _KINETICS400_CATEGORIES
-from .._utils import _ovewrite_named_param, handle_legacy_interface
+from .._utils import handle_legacy_interface, _ovewrite_named_param
 
 
 __all__ = [
@@ -312,10 +312,7 @@ _COMMON_META = {
     "min_size": (1, 1),
     "categories": _KINETICS400_CATEGORIES,
     "recipe": "https://github.com/pytorch/vision/tree/main/references/video_classification",
-    "_docs": (
-        "The weights reproduce closely the accuracy of the paper. The accuracies are estimated on video-level "
-        "with parameters `frame_rate=15`, `clips_per_video=5`, and `clip_len=16`."
-    ),
+    "_docs": """These weights reproduce closely the accuracy of the paper for 16-frame clip inputs.""",
 }
 
 
@@ -328,8 +325,8 @@ class R3D_18_Weights(WeightsEnum):
             "num_params": 33371472,
             "_metrics": {
                 "Kinetics-400": {
-                    "acc@1": 63.200,
-                    "acc@5": 83.479,
+                    "acc@1": 52.75,
+                    "acc@5": 75.45,
                 }
             },
         },
@@ -346,8 +343,8 @@ class MC3_18_Weights(WeightsEnum):
             "num_params": 11695440,
             "_metrics": {
                 "Kinetics-400": {
-                    "acc@1": 63.960,
-                    "acc@5": 84.130,
+                    "acc@1": 53.90,
+                    "acc@5": 76.29,
                 }
             },
         },
@@ -364,8 +361,8 @@ class R2Plus1D_18_Weights(WeightsEnum):
             "num_params": 31505325,
             "_metrics": {
                 "Kinetics-400": {
-                    "acc@1": 67.463,
-                    "acc@5": 86.175,
+                    "acc@1": 57.50,
+                    "acc@5": 78.81,
                 }
             },
         },
@@ -373,7 +370,6 @@ class R2Plus1D_18_Weights(WeightsEnum):
     DEFAULT = KINETICS400_V1
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", R3D_18_Weights.KINETICS400_V1))
 def r3d_18(*, weights: Optional[R3D_18_Weights] = None, progress: bool = True, **kwargs: Any) -> VideoResNet:
     """Construct 18 layer Resnet3D model.
@@ -410,7 +406,6 @@ def r3d_18(*, weights: Optional[R3D_18_Weights] = None, progress: bool = True, *
     )
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", MC3_18_Weights.KINETICS400_V1))
 def mc3_18(*, weights: Optional[MC3_18_Weights] = None, progress: bool = True, **kwargs: Any) -> VideoResNet:
     """Construct 18 layer Mixed Convolution network as in
@@ -447,7 +442,6 @@ def mc3_18(*, weights: Optional[MC3_18_Weights] = None, progress: bool = True, *
     )
 
 
-@register_model()
 @handle_legacy_interface(weights=("pretrained", R2Plus1D_18_Weights.KINETICS400_V1))
 def r2plus1d_18(*, weights: Optional[R2Plus1D_18_Weights] = None, progress: bool = True, **kwargs: Any) -> VideoResNet:
     """Construct 18 layer deep R(2+1)D network as in

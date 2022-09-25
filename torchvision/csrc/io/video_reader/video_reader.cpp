@@ -91,7 +91,7 @@ size_t fillTensor(
   }
   T* frameData = frame.numel() > 0 ? frame.data_ptr<T>() : nullptr;
   int64_t* framePtsData = framePts.data_ptr<int64_t>();
-  TORCH_CHECK_EQ(framePts.size(0), (int64_t)msgs.size());
+  CHECK_EQ(framePts.size(0), (int64_t)msgs.size());
   size_t avgElementsInFrame = frame.numel() / msgs.size();
 
   size_t offset = 0;
@@ -320,7 +320,7 @@ torch::List<torch::Tensor> readVideo(
       auto numberWrittenBytes = fillVideoTensor(
           videoMessages, videoFrame, videoFramePts, header.num, header.den);
 
-      TORCH_CHECK_EQ(numberWrittenBytes, expectedWrittenBytes);
+      CHECK_EQ(numberWrittenBytes, expectedWrittenBytes);
 
       videoTimeBase = torch::zeros({2}, torch::kInt);
       int* videoTimeBaseData = videoTimeBase.data_ptr<int>();
@@ -365,7 +365,7 @@ torch::List<torch::Tensor> readVideo(
           frameSizeTotal += audioMessage.payload->length();
         }
 
-        TORCH_CHECK_EQ(frameSizeTotal % (outAudioChannels * bytesPerSample), 0);
+        CHECK_EQ(frameSizeTotal % (outAudioChannels * bytesPerSample), 0);
         numAudioSamples = frameSizeTotal / (outAudioChannels * bytesPerSample);
 
         audioFrame =
@@ -380,7 +380,7 @@ torch::List<torch::Tensor> readVideo(
 
       auto numberWrittenBytes = fillAudioTensor(
           audioMessages, audioFrame, audioFramePts, header.num, header.den);
-      TORCH_CHECK_EQ(
+      CHECK_EQ(
           numberWrittenBytes,
           numAudioSamples * outAudioChannels * sizeof(float));
 

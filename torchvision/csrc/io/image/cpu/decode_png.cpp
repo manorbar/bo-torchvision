@@ -41,9 +41,7 @@ torch::Tensor decode_png(
     TORCH_CHECK(info_ptr, "libpng info structure allocation failed!")
   }
 
-  auto accessor = data.accessor<unsigned char, 1>();
-  auto datap = accessor.data();
-  auto datap_len = accessor.size(0);
+  auto datap = data.accessor<unsigned char, 1>().data();
 
   if (setjmp(png_jmpbuf(png_ptr)) != 0) {
     png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
@@ -54,22 +52,15 @@ torch::Tensor decode_png(
 
   struct Reader {
     png_const_bytep ptr;
-    png_size_t count;
   } reader;
   reader.ptr = png_const_bytep(datap) + 8;
-  reader.count = datap_len - 8;
 
-  auto read_callback = [](png_structp png_ptr,
-                          png_bytep output,
-                          png_size_t bytes) {
-    auto reader = static_cast<Reader*>(png_get_io_ptr(png_ptr));
-    TORCH_CHECK(
-        reader->count >= bytes,
-        "Out of bound read in decode_png. Probably, the input image is corrupted");
-    std::copy(reader->ptr, reader->ptr + bytes, output);
-    reader->ptr += bytes;
-    reader->count -= bytes;
-  };
+  auto read_callback =
+      [](png_structp png_ptr, png_bytep output, png_size_t bytes) {
+        auto reader = static_cast<Reader*>(png_get_io_ptr(png_ptr));
+        std::copy(reader->ptr, reader->ptr + bytes, output);
+        reader->ptr += bytes;
+      };
   png_set_sig_bytes(png_ptr, 8);
   png_set_read_fn(png_ptr, &reader, read_callback);
   png_read_info(png_ptr, info_ptr);

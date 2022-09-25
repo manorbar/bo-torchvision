@@ -14,14 +14,14 @@ import torchvision.transforms.functional as F
 import torchvision.transforms.functional_pil as F_pil
 import torchvision.transforms.functional_tensor as F_t
 from common_utils import (
-    _assert_approx_equal_tensor_to_pil,
-    _assert_equal_tensor_to_pil,
-    _create_data,
-    _create_data_batch,
-    _test_fn_on_batch,
-    assert_equal,
     cpu_and_gpu,
     needs_cuda,
+    _create_data,
+    _create_data_batch,
+    _assert_equal_tensor_to_pil,
+    _assert_approx_equal_tensor_to_pil,
+    _test_fn_on_batch,
+    assert_equal,
 )
 from torchvision.transforms import InterpolationMode
 
@@ -955,13 +955,24 @@ def test_adjust_gamma(device, dtype, config, channels):
 
 @pytest.mark.parametrize("device", cpu_and_gpu())
 @pytest.mark.parametrize("dt", [None, torch.float32, torch.float64, torch.float16])
-@pytest.mark.parametrize("pad", [2, [3], [0, 3], (3, 3), [4, 2, 4, 3]])
+@pytest.mark.parametrize(
+    "pad",
+    [
+        2,
+        [
+            3,
+        ],
+        [0, 3],
+        (3, 3),
+        [4, 2, 4, 3],
+    ],
+)
 @pytest.mark.parametrize(
     "config",
     [
         {"padding_mode": "constant", "fill": 0},
         {"padding_mode": "constant", "fill": 10},
-        {"padding_mode": "constant", "fill": 20.2},
+        {"padding_mode": "constant", "fill": 20},
         {"padding_mode": "edge"},
         {"padding_mode": "reflect"},
         {"padding_mode": "symmetric"},
@@ -1104,8 +1115,6 @@ def test_hflip(device):
         (2, 12, 3, 4),  # crop inside top-right corner
         (8, 3, 5, 6),  # crop inside bottom-left corner
         (8, 11, 4, 3),  # crop inside bottom-right corner
-        (50, 50, 10, 10),  # crop outside the image
-        (-50, -50, 10, 10),  # crop outside the image
     ],
 )
 def test_crop(device, top, left, height, width):
@@ -1354,24 +1363,16 @@ def test_ten_crop(device):
         assert_equal(transformed_batch, s_transformed_batch)
 
 
-def test_elastic_transform_asserts():
-    with pytest.raises(TypeError, match="Argument displacement should be a Tensor"):
-        _ = F.elastic_transform("abc", displacement=None)
-
-    with pytest.raises(TypeError, match="img should be PIL Image or Tensor"):
-        _ = F.elastic_transform("abc", displacement=torch.rand(1))
-
-    img_tensor = torch.rand(1, 3, 32, 24)
-    with pytest.raises(ValueError, match="Argument displacement shape should"):
-        _ = F.elastic_transform(img_tensor, displacement=torch.rand(1, 2))
-
-
 @pytest.mark.parametrize("device", cpu_and_gpu())
 @pytest.mark.parametrize("interpolation", [NEAREST, BILINEAR, BICUBIC])
 @pytest.mark.parametrize("dt", [None, torch.float32, torch.float64, torch.float16])
 @pytest.mark.parametrize(
     "fill",
-    [None, [255, 255, 255], (2.0,)],
+    [
+        None,
+        [255, 255, 255],
+        (2.0,),
+    ],
 )
 def test_elastic_transform_consistency(device, interpolation, dt, fill):
     script_elastic_transform = torch.jit.script(F.elastic_transform)

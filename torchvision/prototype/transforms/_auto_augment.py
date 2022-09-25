@@ -1,30 +1,39 @@
 import math
-from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, Tuple, Optional, Callable, List, cast, TypeVar, Union, Type
 
 import PIL.Image
 import torch
-
-from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.prototype import features
-from torchvision.prototype.transforms import AutoAugmentPolicy, functional as F, InterpolationMode, Transform
-from torchvision.prototype.transforms.functional._meta import get_chw
+from torchvision.prototype.transforms import Transform, functional as F
+from torchvision.prototype.utils._internal import query_recursively
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
+from torchvision.transforms.functional import pil_to_tensor, to_pil_image, InterpolationMode
 
-from ._utils import _isinstance, _setup_fill_arg
+from ._utils import get_image_dimensions, is_simple_tensor
 
 K = TypeVar("K")
 V = TypeVar("V")
 
 
+def _put_into_sample(sample: Any, id: Tuple[Any, ...], item: Any) -> Any:
+    if not id:
+        return item
+
+    parent = sample
+    for key in id[:-1]:
+        parent = parent[key]
+
+    parent[id[-1]] = item
+    return sample
+
+
 class _AutoAugmentBase(Transform):
     def __init__(
-        self,
-        *,
-        interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Union[features.FillType, Dict[Type, features.FillType]] = None,
+        self, *, interpolation: InterpolationMode = InterpolationMode.NEAREST, fill: Optional[List[float]] = None
     ) -> None:
         super().__init__()
         self.interpolation = interpolation
-        self.fill = _setup_fill_arg(fill)
+        self.fill = fill
 
     def _get_random_item(self, dct: Dict[K, V]) -> Tuple[K, V]:
         keys = tuple(dct.keys())
@@ -34,16 +43,19 @@ class _AutoAugmentBase(Transform):
     def _extract_image(
         self,
         sample: Any,
-        unsupported_types: Tuple[Type, ...] = (features.BoundingBox, features.Mask),
-    ) -> Tuple[int, features.ImageType]:
-        sample_flat, _ = tree_flatten(sample)
-        images = []
-        for id, inpt in enumerate(sample_flat):
-            if _isinstance(inpt, (features.Image, PIL.Image.Image, features.is_simple_tensor)):
-                images.append((id, inpt))
-            elif isinstance(inpt, unsupported_types):
-                raise TypeError(f"Inputs of type {type(inpt).__name__} are not supported by {type(self).__name__}()")
+        unsupported_types: Tuple[Type, ...] = (features.BoundingBox, features.SegmentationMask),
+    ) -> Tuple[Tuple[Any, ...], Union[PIL.Image.Image, torch.Tensor, features.Image]]:
+        def fn(
+            id: Tuple[Any, ...], input: Any
+        ) -> Optional[Tuple[Tuple[Any, ...], Union[PIL.Image.Image, torch.Tensor, features.Image]]]:
+            if type(input) in {torch.Tensor, features.Image} or isinstance(input, PIL.Image.Image):
+                return id, input
+            elif isinstance(input, unsupported_types):
+                raise TypeError(f"Inputs of type {type(input).__name__} are not supported by {type(self).__name__}()")
+            else:
+                return None
 
+        images = list(query_recursively(fn, sample))
         if not images:
             raise TypeError("Found no image in the sample.")
         if len(images) > 1:
@@ -52,94 +64,136 @@ class _AutoAugmentBase(Transform):
             )
         return images[0]
 
-    def _put_into_sample(self, sample: Any, id: int, item: Any) -> Any:
-        sample_flat, spec = tree_flatten(sample)
-        sample_flat[id] = item
-        return tree_unflatten(sample_flat, spec)
+    def _parse_fill(
+        self, image: Union[PIL.Image.Image, torch.Tensor, features.Image], num_channels: int
+    ) -> Optional[List[float]]:
+        fill = self.fill
+
+        if isinstance(image, PIL.Image.Image) or fill is None:
+            return fill
+
+        if isinstance(fill, (int, float)):
+            fill = [float(fill)] * num_channels
+        else:
+            fill = [float(f) for f in fill]
+
+        return fill
+
+    def _dispatch_image_kernels(
+        self,
+        image_tensor_kernel: Callable,
+        image_pil_kernel: Callable,
+        input: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if isinstance(input, features.Image):
+            output = image_tensor_kernel(input, *args, **kwargs)
+            return features.Image.new_like(input, output)
+        elif is_simple_tensor(input):
+            return image_tensor_kernel(input, *args, **kwargs)
+        else:  # isinstance(input, PIL.Image.Image):
+            return image_pil_kernel(input, *args, **kwargs)
 
     def _apply_image_transform(
         self,
-        image: features.ImageType,
+        image: Any,
         transform_id: str,
         magnitude: float,
         interpolation: InterpolationMode,
-        fill: Dict[Type, features.FillType],
-    ) -> features.ImageType:
-        fill_ = fill[type(image)]
-        fill_ = F._geometry._convert_fill_arg(fill_)
-
+        fill: Optional[List[float]],
+    ) -> Any:
         if transform_id == "Identity":
             return image
         elif transform_id == "ShearX":
-            # magnitude should be arctan(magnitude)
-            # official autoaug: (1, level, 0, 0, 1, 0)
-            # https://github.com/tensorflow/models/blob/dd02069717128186b88afa8d857ce57d17957f03/research/autoaugment/augmentation_transforms.py#L290
-            # compared to
-            # torchvision:      (1, tan(level), 0, 0, 1, 0)
-            # https://github.com/pytorch/vision/blob/0c2373d0bba3499e95776e7936e207d8a1676e65/torchvision/transforms/functional.py#L976
-            return F.affine(
+            return self._dispatch_image_kernels(
+                F.affine_image_tensor,
+                F.affine_image_pil,
                 image,
                 angle=0.0,
                 translate=[0, 0],
                 scale=1.0,
-                shear=[math.degrees(math.atan(magnitude)), 0.0],
+                shear=[math.degrees(magnitude), 0.0],
                 interpolation=interpolation,
-                fill=fill_,
-                center=[0, 0],
+                fill=fill,
             )
         elif transform_id == "ShearY":
-            # magnitude should be arctan(magnitude)
-            # See above
-            return F.affine(
+            return self._dispatch_image_kernels(
+                F.affine_image_tensor,
+                F.affine_image_pil,
                 image,
                 angle=0.0,
                 translate=[0, 0],
                 scale=1.0,
-                shear=[0.0, math.degrees(math.atan(magnitude))],
+                shear=[0.0, math.degrees(magnitude)],
                 interpolation=interpolation,
-                fill=fill_,
-                center=[0, 0],
+                fill=fill,
             )
         elif transform_id == "TranslateX":
-            return F.affine(
+            return self._dispatch_image_kernels(
+                F.affine_image_tensor,
+                F.affine_image_pil,
                 image,
                 angle=0.0,
                 translate=[int(magnitude), 0],
                 scale=1.0,
-                interpolation=interpolation,
                 shear=[0.0, 0.0],
-                fill=fill_,
+                interpolation=interpolation,
+                fill=fill,
             )
         elif transform_id == "TranslateY":
-            return F.affine(
+            return self._dispatch_image_kernels(
+                F.affine_image_tensor,
+                F.affine_image_pil,
                 image,
                 angle=0.0,
                 translate=[0, int(magnitude)],
                 scale=1.0,
-                interpolation=interpolation,
                 shear=[0.0, 0.0],
-                fill=fill_,
+                interpolation=interpolation,
+                fill=fill,
             )
         elif transform_id == "Rotate":
-            return F.rotate(image, angle=magnitude, interpolation=interpolation, fill=fill_)
+            return self._dispatch_image_kernels(F.rotate_image_tensor, F.rotate_image_pil, image, angle=magnitude)
         elif transform_id == "Brightness":
-            return F.adjust_brightness(image, brightness_factor=1.0 + magnitude)
+            return self._dispatch_image_kernels(
+                F.adjust_brightness_image_tensor,
+                F.adjust_brightness_image_pil,
+                image,
+                brightness_factor=1.0 + magnitude,
+            )
         elif transform_id == "Color":
-            return F.adjust_saturation(image, saturation_factor=1.0 + magnitude)
+            return self._dispatch_image_kernels(
+                F.adjust_saturation_image_tensor,
+                F.adjust_saturation_image_pil,
+                image,
+                saturation_factor=1.0 + magnitude,
+            )
         elif transform_id == "Contrast":
-            return F.adjust_contrast(image, contrast_factor=1.0 + magnitude)
+            return self._dispatch_image_kernels(
+                F.adjust_contrast_image_tensor, F.adjust_contrast_image_pil, image, contrast_factor=1.0 + magnitude
+            )
         elif transform_id == "Sharpness":
-            return F.adjust_sharpness(image, sharpness_factor=1.0 + magnitude)
+            return self._dispatch_image_kernels(
+                F.adjust_sharpness_image_tensor,
+                F.adjust_sharpness_image_pil,
+                image,
+                sharpness_factor=1.0 + magnitude,
+            )
         elif transform_id == "Posterize":
-            return F.posterize(image, bits=int(magnitude))
+            return self._dispatch_image_kernels(
+                F.posterize_image_tensor, F.posterize_image_pil, image, bits=int(magnitude)
+            )
         elif transform_id == "Solarize":
-            return F.solarize(image, threshold=magnitude)
+            return self._dispatch_image_kernels(
+                F.solarize_image_tensor, F.solarize_image_pil, image, threshold=magnitude
+            )
         elif transform_id == "AutoContrast":
-            return F.autocontrast(image)
+            return self._dispatch_image_kernels(F.autocontrast_image_tensor, F.autocontrast_image_pil, image)
         elif transform_id == "Equalize":
-            return F.equalize(image)
+            return self._dispatch_image_kernels(F.equalize_image_tensor, F.equalize_image_pil, image)
         elif transform_id == "Invert":
-            return F.invert(image)
+            return self._dispatch_image_kernels(F.invert_image_tensor, F.invert_image_pil, image)
         else:
             raise ValueError(f"No transform available for {transform_id}")
 
@@ -177,7 +231,7 @@ class AutoAugment(_AutoAugmentBase):
         self,
         policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
         interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Union[features.FillType, Dict[Type, features.FillType]] = None,
+        fill: Optional[List[float]] = None,
     ) -> None:
         super().__init__(interpolation=interpolation, fill=fill)
         self.policy = policy
@@ -277,7 +331,8 @@ class AutoAugment(_AutoAugmentBase):
         sample = inputs if len(inputs) > 1 else inputs[0]
 
         id, image = self._extract_image(sample)
-        _, height, width = get_chw(image)
+        num_channels, height, width = get_image_dimensions(image)
+        fill = self._parse_fill(image, num_channels)
 
         policy = self._policies[int(torch.randint(len(self._policies), ()))]
 
@@ -296,10 +351,10 @@ class AutoAugment(_AutoAugmentBase):
                 magnitude = 0.0
 
             image = self._apply_image_transform(
-                image, transform_id, magnitude, interpolation=self.interpolation, fill=self.fill
+                image, transform_id, magnitude, interpolation=self.interpolation, fill=fill
             )
 
-        return self._put_into_sample(sample, id, image)
+        return _put_into_sample(sample, id, image)
 
 
 class RandAugment(_AutoAugmentBase):
@@ -333,11 +388,12 @@ class RandAugment(_AutoAugmentBase):
 
     def __init__(
         self,
+        *,
         num_ops: int = 2,
         magnitude: int = 9,
         num_magnitude_bins: int = 31,
         interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Union[features.FillType, Dict[Type, features.FillType]] = None,
+        fill: Optional[List[float]] = None,
     ) -> None:
         super().__init__(interpolation=interpolation, fill=fill)
         self.num_ops = num_ops
@@ -348,22 +404,25 @@ class RandAugment(_AutoAugmentBase):
         sample = inputs if len(inputs) > 1 else inputs[0]
 
         id, image = self._extract_image(sample)
-        _, height, width = get_chw(image)
+        num_channels, height, width = get_image_dimensions(image)
+        fill = self._parse_fill(image, num_channels)
 
         for _ in range(self.num_ops):
             transform_id, (magnitudes_fn, signed) = self._get_random_item(self._AUGMENTATION_SPACE)
+
             magnitudes = magnitudes_fn(self.num_magnitude_bins, height, width)
             if magnitudes is not None:
-                magnitude = float(magnitudes[self.magnitude])
+                magnitude = float(magnitudes[int(torch.randint(self.num_magnitude_bins, ()))])
                 if signed and torch.rand(()) <= 0.5:
                     magnitude *= -1
             else:
                 magnitude = 0.0
+
             image = self._apply_image_transform(
-                image, transform_id, magnitude, interpolation=self.interpolation, fill=self.fill
+                image, transform_id, magnitude, interpolation=self.interpolation, fill=fill
             )
 
-        return self._put_into_sample(sample, id, image)
+        return _put_into_sample(sample, id, image)
 
 
 class TrivialAugmentWide(_AutoAugmentBase):
@@ -391,9 +450,10 @@ class TrivialAugmentWide(_AutoAugmentBase):
 
     def __init__(
         self,
+        *,
         num_magnitude_bins: int = 31,
         interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Union[features.FillType, Dict[Type, features.FillType]] = None,
+        fill: Optional[List[float]] = None,
     ):
         super().__init__(interpolation=interpolation, fill=fill)
         self.num_magnitude_bins = num_magnitude_bins
@@ -402,7 +462,8 @@ class TrivialAugmentWide(_AutoAugmentBase):
         sample = inputs if len(inputs) > 1 else inputs[0]
 
         id, image = self._extract_image(sample)
-        _, height, width = get_chw(image)
+        num_channels, height, width = get_image_dimensions(image)
+        fill = self._parse_fill(image, num_channels)
 
         transform_id, (magnitudes_fn, signed) = self._get_random_item(self._AUGMENTATION_SPACE)
 
@@ -414,10 +475,8 @@ class TrivialAugmentWide(_AutoAugmentBase):
         else:
             magnitude = 0.0
 
-        image = self._apply_image_transform(
-            image, transform_id, magnitude, interpolation=self.interpolation, fill=self.fill
-        )
-        return self._put_into_sample(sample, id, image)
+        image = self._apply_image_transform(image, transform_id, magnitude, interpolation=self.interpolation, fill=fill)
+        return _put_into_sample(sample, id, image)
 
 
 class AugMix(_AutoAugmentBase):
@@ -453,7 +512,7 @@ class AugMix(_AutoAugmentBase):
         alpha: float = 1.0,
         all_ops: bool = True,
         interpolation: InterpolationMode = InterpolationMode.BILINEAR,
-        fill: Union[features.FillType, Dict[Type, features.FillType]] = None,
+        fill: Optional[List[float]] = None,
     ) -> None:
         super().__init__(interpolation=interpolation, fill=fill)
         self._PARAMETER_MAX = 10
@@ -472,12 +531,13 @@ class AugMix(_AutoAugmentBase):
     def forward(self, *inputs: Any) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
         id, orig_image = self._extract_image(sample)
-        _, height, width = get_chw(orig_image)
+        num_channels, height, width = get_image_dimensions(orig_image)
+        fill = self._parse_fill(orig_image, num_channels)
 
         if isinstance(orig_image, torch.Tensor):
             image = orig_image
-        else:  # isinstance(inpt, PIL.Image.Image):
-            image = F.pil_to_tensor(orig_image)
+        else:  # isinstance(input, PIL.Image.Image):
+            image = pil_to_tensor(orig_image)
 
         augmentation_space = self._AUGMENTATION_SPACE if self.all_ops else self._PARTIAL_AUGMENTATION_SPACE
 
@@ -512,7 +572,7 @@ class AugMix(_AutoAugmentBase):
                     magnitude = 0.0
 
                 aug = self._apply_image_transform(
-                    aug, transform_id, magnitude, interpolation=self.interpolation, fill=self.fill
+                    aug, transform_id, magnitude, interpolation=self.interpolation, fill=fill
                 )
             mix.add_(combined_weights[:, i].view(batch_dims) * aug)
         mix = mix.view(orig_dims).to(dtype=image.dtype)
@@ -520,6 +580,6 @@ class AugMix(_AutoAugmentBase):
         if isinstance(orig_image, features.Image):
             mix = features.Image.new_like(orig_image, mix)
         elif isinstance(orig_image, PIL.Image.Image):
-            mix = F.to_image_pil(mix)
+            mix = to_pil_image(mix)
 
-        return self._put_into_sample(sample, id, mix)
+        return _put_into_sample(sample, id, mix)

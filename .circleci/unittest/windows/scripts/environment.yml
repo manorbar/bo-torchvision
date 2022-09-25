@@ -1,19 +1,20 @@
 channels:
   - pytorch
   - defaults
+  # use conda-forge for python v3.9+
+  - conda-forge
 dependencies:
+  - numpy
   - pytest
   - pytest-cov
-  - pytest-mock
+  - codecov
   - pip
   - libpng
-  - jpeg
+  - jpeg <= 9b
   - ca-certificates
-  - hdf5
-  - setuptools
+  - av
   - pip:
     - future
-    - scipy
-    - av != 9.1.1
+    - pillow>=4.1.1
+    - scipy>=1.4.1
     - dataclasses
-    - h5py

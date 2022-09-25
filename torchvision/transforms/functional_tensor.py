@@ -1,9 +1,9 @@
 import warnings
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Tuple, List
 
 import torch
 from torch import Tensor
-from torch.nn.functional import conv2d, grid_sample, interpolate, pad as torch_pad
+from torch.nn.functional import grid_sample, conv2d, interpolate, pad as torch_pad
 
 
 def _is_tensor_a_torch_image(x: Tensor) -> bool:
@@ -137,12 +137,7 @@ def crop(img: Tensor, top: int, left: int, height: int, width: int) -> Tensor:
     bottom = top + height
 
     if left < 0 or top < 0 or right > w or bottom > h:
-        padding_ltrb = [
-            max(-left + min(0, right), 0),
-            max(-top + min(0, bottom), 0),
-            max(right - max(w, left), 0),
-            max(bottom - max(h, top), 0),
-        ]
+        padding_ltrb = [max(-left, 0), max(-top, 0), max(right - w, 0), max(bottom - h, 0)]
         return pad(img[..., max(top, 0) : bottom, max(left, 0) : right], padding_ltrb, fill=0)
     return img[..., top:bottom, left:right]
 
@@ -150,19 +145,16 @@ def crop(img: Tensor, top: int, left: int, height: int, width: int) -> Tensor:
 def rgb_to_grayscale(img: Tensor, num_output_channels: int = 1) -> Tensor:
     if img.ndim < 3:
         raise TypeError(f"Input image tensor should have at least 3 dimensions, but found {img.ndim}")
-    _assert_channels(img, [1, 3])
+    _assert_channels(img, [3])
 
     if num_output_channels not in (1, 3):
         raise ValueError("num_output_channels should be either 1 or 3")
 
-    if img.shape[-3] == 3:
-        r, g, b = img.unbind(dim=-3)
-        # This implementation closely follows the TF one:
-        # https://github.com/tensorflow/tensorflow/blob/v2.3.0/tensorflow/python/ops/image_ops_impl.py#L2105-L2138
-        l_img = (0.2989 * r + 0.587 * g + 0.114 * b).to(img.dtype)
-        l_img = l_img.unsqueeze(dim=-3)
-    else:
-        l_img = img.clone()
+    r, g, b = img.unbind(dim=-3)
+    # This implementation closely follows the TF one:
+    # https://github.com/tensorflow/tensorflow/blob/v2.3.0/tensorflow/python/ops/image_ops_impl.py#L2105-L2138
+    l_img = (0.2989 * r + 0.587 * g + 0.114 * b).to(img.dtype)
+    l_img = l_img.unsqueeze(dim=-3)
 
     if num_output_channels == 3:
         return l_img.expand(img.shape)
@@ -255,7 +247,7 @@ def adjust_gamma(img: Tensor, gamma: float, gain: float = 1) -> Tensor:
     if not torch.is_floating_point(img):
         result = convert_image_dtype(result, torch.float32)
 
-    result = (gain * result**gamma).clamp(0, 1)
+    result = (gain * result ** gamma).clamp(0, 1)
 
     result = convert_image_dtype(result, dtype)
     return result
@@ -358,7 +350,7 @@ def _pad_symmetric(img: Tensor, padding: List[int]) -> Tensor:
         raise RuntimeError("Symmetric padding of N-D tensors are not supported yet")
 
 
-def _parse_pad_padding(padding: Union[int, List[int]]) -> List[int]:
+def _parse_pad_padding(padding: List[int]) -> List[int]:
     if isinstance(padding, int):
         if torch.jit.is_scripting():
             # This maybe unreachable
@@ -378,13 +370,8 @@ def _parse_pad_padding(padding: Union[int, List[int]]) -> List[int]:
     return [pad_left, pad_right, pad_top, pad_bottom]
 
 
-def pad(
-    img: Tensor, padding: Union[int, List[int]], fill: Optional[Union[int, float]] = 0, padding_mode: str = "constant"
-) -> Tensor:
+def pad(img: Tensor, padding: List[int], fill: int = 0, padding_mode: str = "constant") -> Tensor:
     _assert_image_tensor(img)
-
-    if fill is None:
-        fill = 0
 
     if not isinstance(padding, (int, tuple, list)):
         raise TypeError("Got inappropriate padding arg")
@@ -396,13 +383,8 @@ def pad(
     if isinstance(padding, tuple):
         padding = list(padding)
 
-    if isinstance(padding, list):
-        # TODO: Jit is failing on loading this op when scripted and saved
-        # https://github.com/pytorch/pytorch/issues/81100
-        if len(padding) not in [1, 2, 4]:
-            raise ValueError(
-                f"Padding must be an int or a 1, 2, or 4 element tuple, not a {len(padding)} element tuple"
-            )
+    if isinstance(padding, list) and len(padding) not in [1, 2, 4]:
+        raise ValueError(f"Padding must be an int or a 1, 2, or 4 element tuple, not a {len(padding)} element tuple")
 
     if padding_mode not in ["constant", "edge", "reflect", "symmetric"]:
         raise ValueError("Padding mode should be either constant, edge, reflect or symmetric")
@@ -480,7 +462,7 @@ def _assert_grid_transform_inputs(
     img: Tensor,
     matrix: Optional[List[float]],
     interpolation: str,
-    fill: Optional[Union[int, float, List[float]]],
+    fill: Optional[List[float]],
     supported_interpolation_modes: List[str],
     coeffs: Optional[List[float]] = None,
 ) -> None:
@@ -504,7 +486,7 @@ def _assert_grid_transform_inputs(
 
     # Check fill
     num_channels = get_dimensions(img)[0]
-    if fill is not None and isinstance(fill, (tuple, list)) and len(fill) > 1 and len(fill) != num_channels:
+    if isinstance(fill, (tuple, list)) and (len(fill) > 1 and len(fill) != num_channels):
         msg = (
             "The number of elements in 'fill' cannot broadcast to match the number of "
             "channels of the image ({} != {})"
@@ -544,9 +526,7 @@ def _cast_squeeze_out(img: Tensor, need_cast: bool, need_squeeze: bool, out_dtyp
     return img
 
 
-def _apply_grid_transform(
-    img: Tensor, grid: Tensor, mode: str, fill: Optional[Union[int, float, List[float]]]
-) -> Tensor:
+def _apply_grid_transform(img: Tensor, grid: Tensor, mode: str, fill: Optional[List[float]]) -> Tensor:
 
     img, need_cast, need_squeeze, out_dtype = _cast_squeeze_in(img, [grid.dtype])
 
@@ -556,8 +536,8 @@ def _apply_grid_transform(
 
     # Append a dummy mask for customized fill colors, should be faster than grid_sample() twice
     if fill is not None:
-        mask = torch.ones((img.shape[0], 1, img.shape[2], img.shape[3]), dtype=img.dtype, device=img.device)
-        img = torch.cat((img, mask), dim=1)
+        dummy = torch.ones((img.shape[0], 1, img.shape[2], img.shape[3]), dtype=img.dtype, device=img.device)
+        img = torch.cat((img, dummy), dim=1)
 
     img = grid_sample(img, grid, mode=mode, padding_mode="zeros", align_corners=False)
 
@@ -566,8 +546,8 @@ def _apply_grid_transform(
         mask = img[:, -1:, :, :]  # N * 1 * H * W
         img = img[:, :-1, :, :]  # N * C * H * W
         mask = mask.expand_as(img)
-        fill_list, len_fill = (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
-        fill_img = torch.tensor(fill_list, dtype=img.dtype, device=img.device).view(1, len_fill, 1, 1).expand_as(img)
+        len_fill = len(fill) if isinstance(fill, (tuple, list)) else 1
+        fill_img = torch.tensor(fill, dtype=img.dtype, device=img.device).view(1, len_fill, 1, 1).expand_as(img)
         if mode == "nearest":
             mask = mask < 0.5
             img[mask] = fill_img[mask]
@@ -605,10 +585,7 @@ def _gen_affine_grid(
 
 
 def affine(
-    img: Tensor,
-    matrix: List[float],
-    interpolation: str = "nearest",
-    fill: Optional[Union[int, float, List[float]]] = None,
+    img: Tensor, matrix: List[float], interpolation: str = "nearest", fill: Optional[List[float]] = None
 ) -> Tensor:
     _assert_grid_transform_inputs(img, matrix, interpolation, fill, ["nearest", "bilinear"])
 
@@ -620,7 +597,7 @@ def affine(
     return _apply_grid_transform(img, grid, interpolation, fill=fill)
 
 
-def _compute_affine_output_size(matrix: List[float], w: int, h: int) -> Tuple[int, int]:
+def _compute_output_size(matrix: List[float], w: int, h: int) -> Tuple[int, int]:
 
     # Inspired of PIL implementation:
     # https://github.com/python-pillow/Pillow/blob/11de3318867e4398057373ee9f12dcb33db7335c/src/PIL/Image.py#L2054
@@ -650,7 +627,7 @@ def _compute_affine_output_size(matrix: List[float], w: int, h: int) -> Tuple[in
     cmax = torch.ceil((max_vals / tol).trunc_() * tol)
     cmin = torch.floor((min_vals / tol).trunc_() * tol)
     size = cmax - cmin
-    return int(size[0]), int(size[1])  # w, h
+    return int(size[0]), int(size[1])
 
 
 def rotate(
@@ -658,11 +635,11 @@ def rotate(
     matrix: List[float],
     interpolation: str = "nearest",
     expand: bool = False,
-    fill: Optional[Union[int, float, List[float]]] = None,
+    fill: Optional[List[float]] = None,
 ) -> Tensor:
     _assert_grid_transform_inputs(img, matrix, interpolation, fill, ["nearest", "bilinear"])
     w, h = img.shape[-1], img.shape[-2]
-    ow, oh = _compute_affine_output_size(matrix, w, h) if expand else (w, h)
+    ow, oh = _compute_output_size(matrix, w, h) if expand else (w, h)
     dtype = img.dtype if torch.is_floating_point(img) else torch.float32
     theta = torch.tensor(matrix, dtype=dtype, device=img.device).reshape(1, 2, 3)
     # grid will be generated on the same device as theta and img
@@ -701,10 +678,7 @@ def _perspective_grid(coeffs: List[float], ow: int, oh: int, dtype: torch.dtype,
 
 
 def perspective(
-    img: Tensor,
-    perspective_coeffs: List[float],
-    interpolation: str = "bilinear",
-    fill: Optional[Union[int, float, List[float]]] = None,
+    img: Tensor, perspective_coeffs: List[float], interpolation: str = "bilinear", fill: Optional[List[float]] = None
 ) -> Tensor:
     if not (isinstance(img, torch.Tensor)):
         raise TypeError("Input img should be Tensor.")
@@ -951,17 +925,11 @@ def erase(img: Tensor, i: int, j: int, h: int, w: int, v: Tensor, inplace: bool 
     return img
 
 
-def _create_identity_grid(size: List[int]) -> Tensor:
-    hw_space = [torch.linspace((-s + 1) / s, (s - 1) / s, s) for s in size]
-    grid_y, grid_x = torch.meshgrid(hw_space, indexing="ij")
-    return torch.stack([grid_x, grid_y], -1).unsqueeze(0)  # 1 x H x W x 2
-
-
 def elastic_transform(
     img: Tensor,
     displacement: Tensor,
     interpolation: str = "bilinear",
-    fill: Optional[Union[int, float, List[float]]] = None,
+    fill: Optional[List[float]] = None,
 ) -> Tensor:
 
     if not (isinstance(img, torch.Tensor)):
@@ -970,6 +938,8 @@ def elastic_transform(
     size = list(img.shape[-2:])
     displacement = displacement.to(img.device)
 
-    identity_grid = _create_identity_grid(size)
+    hw_space = [torch.linspace((-s + 1) / s, (s - 1) / s, s) for s in size]
+    grid_y, grid_x = torch.meshgrid(hw_space, indexing="ij")
+    identity_grid = torch.stack([grid_x, grid_y], -1).unsqueeze(0)  # 1 x H x W x 2
     grid = identity_grid.to(img.device) + displacement
     return _apply_grid_transform(img, grid, interpolation, fill)

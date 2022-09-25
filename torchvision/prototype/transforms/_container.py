@@ -1,16 +1,17 @@
-import warnings
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Optional, List, Dict
 
 import torch
 from torchvision.prototype.transforms import Transform
 
+from ._transform import _RandomApplyTransform
+
 
 class Compose(Transform):
-    def __init__(self, transforms: Sequence[Callable]) -> None:
+    def __init__(self, *transforms: Transform) -> None:
         super().__init__()
-        if not isinstance(transforms, Sequence):
-            raise TypeError("Argument transforms should be a sequence of callables")
         self.transforms = transforms
+        for idx, transform in enumerate(transforms):
+            self.add_module(str(idx), transform)
 
     def forward(self, *inputs: Any) -> Any:
         sample = inputs if len(inputs) > 1 else inputs[0]
@@ -18,46 +19,21 @@ class Compose(Transform):
             sample = transform(sample)
         return sample
 
+
+class RandomApply(_RandomApplyTransform):
+    def __init__(self, transform: Transform, *, p: float = 0.5) -> None:
+        super().__init__(p=p)
+        self.transform = transform
+
+    def _transform(self, input: Any, params: Dict[str, Any]) -> Any:
+        return self.transform(input)
+
     def extra_repr(self) -> str:
-        format_string = []
-        for t in self.transforms:
-            format_string.append(f"    {t}")
-        return "\n".join(format_string)
-
-
-class RandomApply(Compose):
-    def __init__(self, transforms: Sequence[Callable], p: float = 0.5) -> None:
-        super().__init__(transforms)
-
-        if not (0.0 <= p <= 1.0):
-            raise ValueError("`p` should be a floating point value in the interval [0.0, 1.0].")
-        self.p = p
-
-    def forward(self, *inputs: Any) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
-
-        if torch.rand(1) >= self.p:
-            return sample
-
-        return super().forward(sample)
+        return f"p={self.p}"
 
 
 class RandomChoice(Transform):
-    def __init__(
-        self,
-        transforms: Sequence[Callable],
-        probabilities: Optional[List[float]] = None,
-        p: Optional[List[float]] = None,
-    ) -> None:
-        if not isinstance(transforms, Sequence):
-            raise TypeError("Argument transforms should be a sequence of callables")
-        if p is not None:
-            warnings.warn(
-                "Argument p is deprecated and will be removed in a future release. "
-                "Please use probabilities argument instead."
-            )
-            probabilities = p
-
+    def __init__(self, *transforms: Transform, probabilities: Optional[List[float]] = None) -> None:
         if probabilities is None:
             probabilities = [1] * len(transforms)
         elif len(probabilities) != len(transforms):
@@ -69,8 +45,11 @@ class RandomChoice(Transform):
         super().__init__()
 
         self.transforms = transforms
+        for idx, transform in enumerate(transforms):
+            self.add_module(str(idx), transform)
+
         total = sum(probabilities)
-        self.probabilities = [prob / total for prob in probabilities]
+        self.probabilities = [p / total for p in probabilities]
 
     def forward(self, *inputs: Any) -> Any:
         idx = int(torch.multinomial(torch.tensor(self.probabilities), 1))
@@ -79,15 +58,14 @@ class RandomChoice(Transform):
 
 
 class RandomOrder(Transform):
-    def __init__(self, transforms: Sequence[Callable]) -> None:
-        if not isinstance(transforms, Sequence):
-            raise TypeError("Argument transforms should be a sequence of callables")
+    def __init__(self, *transforms: Transform) -> None:
         super().__init__()
         self.transforms = transforms
+        for idx, transform in enumerate(transforms):
+            self.add_module(str(idx), transform)
 
     def forward(self, *inputs: Any) -> Any:
-        sample = inputs if len(inputs) > 1 else inputs[0]
         for idx in torch.randperm(len(self.transforms)):
             transform = self.transforms[idx]
-            sample = transform(sample)
-        return sample
+            inputs = transform(*inputs)
+        return inputs

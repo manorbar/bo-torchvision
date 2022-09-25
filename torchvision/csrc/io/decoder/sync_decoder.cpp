@@ -19,17 +19,17 @@ void SyncDecoder::AVByteStorage::ensure(size_t n) {
 }
 
 uint8_t* SyncDecoder::AVByteStorage::writableTail() {
-  TORCH_CHECK_LE(offset_ + length_, capacity_);
+  CHECK_LE(offset_ + length_, capacity_);
   return buffer_ + offset_ + length_;
 }
 
 void SyncDecoder::AVByteStorage::append(size_t n) {
-  TORCH_CHECK_LE(n, tail());
+  CHECK_LE(n, tail());
   length_ += n;
 }
 
 void SyncDecoder::AVByteStorage::trim(size_t n) {
-  TORCH_CHECK_LE(n, length_);
+  CHECK_LE(n, length_);
   offset_ += n;
   length_ -= n;
 }
@@ -43,7 +43,7 @@ size_t SyncDecoder::AVByteStorage::length() const {
 }
 
 size_t SyncDecoder::AVByteStorage::tail() const {
-  TORCH_CHECK_LE(offset_ + length_, capacity_);
+  CHECK_LE(offset_ + length_, capacity_);
   return capacity_ - offset_ - length_;
 }
 

@@ -1,45 +1,46 @@
 import unittest.mock
-from typing import Any, Dict, Tuple, Union
+from typing import Dict, Any, Tuple, Union
 
 import numpy as np
 import PIL.Image
 import torch
+from torch.nn.functional import one_hot
 from torchvision.io.video import read_video
-from torchvision.prototype import features
 from torchvision.prototype.utils._internal import ReadOnlyTensorBuffer
 from torchvision.transforms import functional as _F
 
 
-@torch.jit.unused
-def decode_image_with_pil(encoded_image: torch.Tensor) -> features.Image:
+def decode_image_with_pil(encoded_image: torch.Tensor) -> torch.Tensor:
     image = torch.as_tensor(np.array(PIL.Image.open(ReadOnlyTensorBuffer(encoded_image)), copy=True))
     if image.ndim == 2:
         image = image.unsqueeze(2)
-    return features.Image(image.permute(2, 0, 1))
+    return image.permute(2, 0, 1)
 
 
-@torch.jit.unused
 def decode_video_with_av(encoded_video: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
     with unittest.mock.patch("torchvision.io.video.os.path.exists", return_value=True):
         return read_video(ReadOnlyTensorBuffer(encoded_video))  # type: ignore[arg-type]
 
 
-@torch.jit.unused
-def to_image_tensor(image: Union[torch.Tensor, PIL.Image.Image, np.ndarray]) -> features.Image:
-    if isinstance(image, np.ndarray):
-        output = torch.from_numpy(image)
-    elif isinstance(image, PIL.Image.Image):
-        output = pil_to_tensor(image)
-    else:  # isinstance(inpt, torch.Tensor):
-        output = image
-    return features.Image(output)
+def label_to_one_hot(label: torch.Tensor, *, num_categories: int) -> torch.Tensor:
+    return one_hot(label, num_classes=num_categories)  # type: ignore[no-any-return]
 
 
-to_image_pil = _F.to_pil_image
-pil_to_tensor = _F.pil_to_tensor
+def to_image_tensor(image: Union[torch.Tensor, PIL.Image.Image, np.ndarray], copy: bool = False) -> torch.Tensor:
+    if isinstance(image, torch.Tensor):
+        if copy:
+            return image.clone()
+        else:
+            return image
 
-# We changed the names to align them with the new naming scheme. Still, `to_pil_image` is
-# prevalent and well understood. Thus, we just alias it without deprecating the old name.
-to_pil_image = to_image_pil
+    return _F.to_tensor(image)
 
-convert_image_dtype = _F.convert_image_dtype
+
+def to_image_pil(image: Union[torch.Tensor, PIL.Image.Image, np.ndarray], copy: bool = False) -> PIL.Image.Image:
+    if isinstance(image, PIL.Image.Image):
+        if copy:
+            return image.copy()
+        else:
+            return image
+
+    return _F.to_pil_image(to_image_tensor(image, copy=False))

@@ -1,31 +1,30 @@
 import csv
 import functools
 import pathlib
-from typing import Any, BinaryIO, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, BinaryIO, Callable, Union
 
 from torchdata.datapipes.iter import (
-    CSVDictParser,
-    CSVParser,
-    Demultiplexer,
-    Filter,
     IterDataPipe,
-    IterKeyZipper,
-    LineReader,
     Mapper,
+    Filter,
+    IterKeyZipper,
+    Demultiplexer,
+    LineReader,
+    CSVParser,
+    CSVDictParser,
 )
-from torchdata.datapipes.map import IterToMapConverter
 from torchvision.prototype.datasets.utils import Dataset, GDriveResource, OnlineResource
 from torchvision.prototype.datasets.utils._internal import (
-    getitem,
+    INFINITE_BUFFER_SIZE,
+    read_mat,
     hint_sharding,
     hint_shuffling,
-    INFINITE_BUFFER_SIZE,
-    path_accessor,
+    getitem,
     path_comparator,
     read_categories_file,
-    read_mat,
+    path_accessor,
 )
-from torchvision.prototype.features import _Feature, BoundingBox, EncodedImage, Label
+from torchvision.prototype.features import Label, BoundingBox, _Feature, EncodedImage
 
 from .._api import register_dataset, register_info
 
@@ -115,9 +114,6 @@ class CUB200(Dataset):
         else:
             return None
 
-    def _2011_extract_file_name(self, rel_posix_path: str) -> str:
-        return rel_posix_path.rsplit("/", maxsplit=1)[1]
-
     def _2011_filter_split(self, row: List[str]) -> bool:
         _, split_id = row
         return {
@@ -189,16 +185,17 @@ class CUB200(Dataset):
             )
 
             image_files_dp = CSVParser(image_files_dp, dialect="cub200")
-            image_files_dp = Mapper(image_files_dp, self._2011_extract_file_name, input_col=1)
-            image_files_map = IterToMapConverter(image_files_dp)
+            image_files_map = dict(
+                (image_id, rel_posix_path.rsplit("/", maxsplit=1)[1]) for image_id, rel_posix_path in image_files_dp
+            )
 
             split_dp = CSVParser(split_dp, dialect="cub200")
             split_dp = Filter(split_dp, self._2011_filter_split)
             split_dp = Mapper(split_dp, getitem(0))
-            split_dp = Mapper(split_dp, image_files_map.__getitem__)
+            split_dp = Mapper(split_dp, image_files_map.get)
 
             bounding_boxes_dp = CSVParser(bounding_boxes_dp, dialect="cub200")
-            bounding_boxes_dp = Mapper(bounding_boxes_dp, image_files_map.__getitem__, input_col=0)
+            bounding_boxes_dp = Mapper(bounding_boxes_dp, image_files_map.get, input_col=0)
 
             anns_dp = IterKeyZipper(
                 bounding_boxes_dp,

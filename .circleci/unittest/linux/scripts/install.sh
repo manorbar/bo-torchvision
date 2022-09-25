@@ -12,7 +12,6 @@ conda activate ./env
 
 if [ "${CU_VERSION:-}" == cpu ] ; then
     cudatoolkit="cpuonly"
-    version="cpu"
 else
     if [[ ${#CU_VERSION} -eq 4 ]]; then
         CUDA_VERSION="${CU_VERSION:2:1}.${CU_VERSION:3:1}"
@@ -21,24 +20,16 @@ else
     fi
     echo "Using CUDA $CUDA_VERSION as determined by CU_VERSION"
     version="$(python -c "print('.'.join(\"${CUDA_VERSION}\".split('.')[:2]))")"
-
-    cudatoolkit="nvidia::cudatoolkit=${version}"
-    if [[ "$version" == "11.6" || "$version" == "11.7" ]]; then
-        cudatoolkit=" pytorch-cuda=${version}"
-    fi
+    cudatoolkit="cudatoolkit=${version}"
 fi
 
-case "$(uname -s)" in
-    Darwin*) os=MacOSX;;
-    *) os=Linux
-esac
+CONDA_CHANNEL_FLAGS=""
+if [[ "$(python --version)" = *3.9* ]]; then
+  CONDA_CHANNEL_FLAGS="-c=conda-forge"
+fi
 
 printf "Installing PyTorch with %s\n" "${cudatoolkit}"
-if [ "${os}" == "MacOSX" ]; then
-    conda install -y -c "pytorch-${UPLOAD_CHANNEL}" "pytorch-${UPLOAD_CHANNEL}"::pytorch "${cudatoolkit}"
-else
-    conda install -y -c "pytorch-${UPLOAD_CHANNEL}" -c nvidia "pytorch-${UPLOAD_CHANNEL}"::pytorch[build="*${version}*"] "${cudatoolkit}"
-fi
+conda install -y -c "pytorch-${UPLOAD_CHANNEL}" ${CONDA_CHANNEL_FLAGS} pytorch "${cudatoolkit}"
 
 printf "* Installing torchvision\n"
 python setup.py develop
