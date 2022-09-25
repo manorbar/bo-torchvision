@@ -63,6 +63,7 @@ requirements = [
     "requests",
     "scikit-image",
     "tqdm",
+    "opencv-python",
     pytorch_dep,
 ]
 
