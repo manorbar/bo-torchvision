@@ -3,7 +3,8 @@ from typing import Callable, Dict, List, Optional, Union
 
 from torch import nn, Tensor
 from torchvision.ops import misc as misc_nn_ops
-from torchvision.ops.feature_pyramid_network import ExtraFPNBlock, FeaturePyramidNetwork, LastLevelMaxPool
+from torchvision.ops.feature_pyramid_network import ExtraFPNBlock, FeaturePyramidNetwork, LastLevelMaxPool, \
+    TwoSidesFeaturePyramidNetwork
 
 from .. import mobilenet, resnet
 from .._api import _get_enum_from_fn, WeightsEnum
@@ -38,6 +39,7 @@ class BackboneWithFPN(nn.Module):
             out_channels: int,
             extra_blocks: Optional[ExtraFPNBlock] = None,
             norm_layer: Optional[Callable[..., nn.Module]] = None,
+            two_sides_fpn: bool = False
     ) -> None:
         super().__init__()
 
@@ -45,12 +47,20 @@ class BackboneWithFPN(nn.Module):
             extra_blocks = LastLevelMaxPool()
 
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
-        self.fpn = FeaturePyramidNetwork(
-            in_channels_list=in_channels_list,
-            out_channels=out_channels,
-            extra_blocks=extra_blocks,
-            norm_layer=norm_layer,
-        )
+        if two_sides_fpn:
+            self.fpn = TwoSidesFeaturePyramidNetwork(
+                in_channels_list=in_channels_list,
+                out_channels=out_channels,
+                extra_blocks=extra_blocks,
+            )
+        else:
+            self.fpn = FeaturePyramidNetwork(
+                in_channels_list=in_channels_list,
+                out_channels=out_channels,
+                extra_blocks=extra_blocks,
+                norm_layer=norm_layer,
+            )
+
         self.out_channels = out_channels
 
     def forward(self, x: Tensor) -> Dict[str, Tensor]:
