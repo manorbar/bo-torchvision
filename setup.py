@@ -64,6 +64,9 @@ requirements = [
     "scikit-image",
     "tqdm",
     "opencv-python",
+    "pillow",
+    "matplotlib",
+    "pyyaml",
     pytorch_dep,
 ]
 

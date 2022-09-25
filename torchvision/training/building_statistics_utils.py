@@ -1,4 +1,5 @@
 import numpy as np
+from caffe2.python.layers import cls
 from tqdm import tqdm
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import directed_hausdorff
@@ -140,7 +141,7 @@ def remove_masks_from_edges(mask, edge_factor=1):
 
     # check for small masks
     irrelevant_masks_proposed_small = torch.sum(mask, axis=(0, 1)) < (
-            FACTOR_FROM_IMAGE * image_edge_mask.shape[0] * image_edge_mask.shape[1])
+                FACTOR_FROM_IMAGE * image_edge_mask.shape[0] * image_edge_mask.shape[1])
 
     # check for all small masks on edge and remove them
     irrelevant_masks = irrelevant_masks_proposed_edge & irrelevant_masks_proposed_small
@@ -378,7 +379,7 @@ class MaskStatistics:
             recall_list.append(tp / (gt + 1e-6))
 
             f1 = (1 + beta ** 2) * (recall_list[idx] * precision_list[idx] / (
-                    beta ** 2 * precision_list[idx] + recall_list[idx] + 1e-6))
+                        beta ** 2 * precision_list[idx] + recall_list[idx] + 1e-6))
             if f1 > best_f1:
                 best_f1 = f1
                 best_tresh_idx = thresh_idx
@@ -625,8 +626,8 @@ class MaskStatistics:
         # change TP_CLS_FLAG = 1 for predictions with IOU above threshold and correct class prediction
 
         tp_cls_flags_val = (
-                gt_cls[result_array[:, RA_GT_MATCHED][result_array[:, RA_TP_DET_FLAG] == 1].astype(np.int)] ==
-                result_array[:, RA_CLASS][result_array[:, RA_TP_DET_FLAG] == 1]).astype(np.int64)
+                    gt_cls[result_array[:, RA_GT_MATCHED][result_array[:, RA_TP_DET_FLAG] == 1].astype(np.int)] ==
+                    result_array[:, RA_CLASS][result_array[:, RA_TP_DET_FLAG] == 1]).astype(np.int64)
 
         result_array[:, RA_TP_CLS_FLAG][result_array[:, RA_TP_DET_FLAG] == 1] = tp_cls_flags_val
         # set sizes value by prediction size, if tp, value will determine by gt
@@ -713,7 +714,6 @@ class MaskStatistics:
     def update_gt_statistic_in_evaluation_tensor(self, index, gt_sizes):
         """
         :param index: int, index of the image
-        :param gt_area: ndarray, sizes of the GT's
         :return:
         """
         for size in gt_sizes:
