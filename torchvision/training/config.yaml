@@ -1,0 +1,206 @@
+transform:
+  hflip:
+    use: true
+    probability: 0.5
+  vflip:
+    use: true
+    probability: 0.5
+  rotate:
+    use: true
+    probability: 0.5
+    min_angle: 0
+    max_angle: 45
+  zoom:
+    use: false
+    probability: 0.5
+    scale:
+      - 0.6
+      - 0.9
+  translate:
+    use: true
+    probability: 0.5
+    min_x_pct: -0.2
+    max_x_pct: 0.2
+    min_y_pct: -0.2
+    max_y_pct: 0.2
+  shear:
+    use: false
+    probability: 0
+    min_angle: -20
+    max_angle: 20
+  blur:
+    use: false
+    kernels:
+      - - 3
+        - 3
+      - - 5
+        - 5
+    probability: 0.5
+  brightness:
+    use: true
+    probability: 0.5
+    min_level: 0.5
+    max_level: 2
+  contrast:
+    use: true
+    probability: 0.5
+    min_level: 0.5
+    max_level: 2
+  gamma:
+    use: true
+    probability: 0.5
+    min_level: 0.5
+    max_level: 1.5
+  hue:
+    use: true
+    probability: 0.5
+    min_level: -0.2
+    max_level: 0.2
+  saturation:
+    use: true
+    probability: 0.5
+    min_level: 0.5
+    max_level: 2
+  clahe:
+    use: true
+    clipLimit: 2.0
+    probability: 1.0
+    tileGridSize:
+      - 8
+      - 8
+  hist_matching:
+    use: false
+    zero_padding_thresh: 5e-4
+    probability: 0.6
+    ref_weight_range:
+      - 0.4
+      - 0.65
+  normalize:
+    rgb:
+      use: true
+      image_mean:
+        - 0.485
+        - 0.456
+        - 0.406
+      image_std:
+        - 0.229
+        - 0.224
+        - 0.225
+    depth:
+      use: false
+
+model: maskrcnn_resnet_base
+num_classes: 2
+general_model_params:
+  min_size: 1024
+  max_size: 1024
+  use_edge_loss: true
+  rpn_nms_thresh: 0.7
+  rpn_pre_nms_top_n_train: 6000
+  rpn_pre_nms_top_n_test: 6000
+  rpn_post_nms_top_n_train: 2000
+  rpn_post_nms_top_n_test: 1000
+  rpn_fg_iou_thresh: 0.7
+  rpn_bg_iou_thresh: 0.3
+  rpn_batch_size_per_image: 256
+  rpn_positive_fraction: 0.5
+  box_score_thresh: 0.6
+  box_nms_thresh: 0.5
+  box_detections_per_img: 200
+  box_fg_iou_thresh: 0.5
+  box_bg_iou_thresh: 0.5
+  box_batch_size_per_image: 512
+  box_positive_fraction: 0.33
+  pretrained_mrcnn: false  # A path to the pretrained checkpoint to load, or true in order to Load the default pretrained torchvision resnet50 mrcnn model
+  ##Deleted
+
+backbone_params:
+  main_backbone: # Supports RGB / RGBD / Depth modes
+    name: resnet50
+    pretrained: false  # Path to a stand-alone pretrained backbone or a 'true' signal to load the stand-alone pretrained backbone from torchvision URL
+    freeze: false
+  #    additional_backbone:  # Supports Depth mode only
+  #        name: resnet50_depth
+  #        pretrained: true  # Path to a stand-alone pretrained backbone or a 'true' signal to load the stand-alone pretrained backbone from torchvision URL
+  #        freeze: false
+  num_of_layers_in_pyramid: 4
+  two_sides_fpn: false
+  #    fusion_type: Attention  # Concat / Sum / Attention
+  freeze_fpn: false
+
+anchor_generator_params:
+  aspect_ratios: [ ]
+  anchor_sizes: [ ]
+  freeze: false
+
+mask_roi_pool_params:
+  featmap_names:
+    - 0
+    - 1
+    - 2
+    - 3
+  output_size: 14
+  sampling_ratio: 2
+
+optimizer: SGD
+optimizer_params:
+  lr: 1e-4
+  momentum: 0.9
+  weight_decay: 1e-4
+
+lr_scheduler: ReduceLROnPlateau
+lr_scheduler_params:
+  mode: min
+  factor: 0.9
+  patience: 5
+  threshold: 1e-4
+  cooldown: 0
+  min_lr: 0
+  eps: 1e-08
+
+dataset: buildings_dataset
+dataset_params:
+  train:
+    root:
+  #          ##Deleted
+  #        validate_data:
+  #            update_flag: true
+  validation:
+    root:
+#           ##Deleted
+#        validate_data:
+#            update_flag: true
+
+train_params:
+  epochs: 100
+  batch_size: 2
+  shuffle: true
+  logdir:
+  save_checkpoint_frequency: 1
+  visualize_gradients_frequency: 10
+#    resume:
+#        run_dir:
+#        resume_scheduler: false
+#        resume_optim: false
+test_params:
+  model_state_path:
+  pixel_thresh: 0.5
+  map_iou_threshold: 0.5
+  box_score_thresh: 0.6
+  num_images_to_save: 346
+  logdir: ##Deleted
+
+validation_params:
+  steps: 5000
+  run_statistics_as_process: false
+  pixel_thresh: 0.5
+  box_score_thresh: 0.6
+  num_images_to_save: 10
+  map_iou_threshold: 0.5
+  sizes_thresh:
+    - 1024
+    - 8464
+  scaling_factor: 1
+  highest_loss_vis_thresh: 2
+
+experiment_name: ##Deleted
