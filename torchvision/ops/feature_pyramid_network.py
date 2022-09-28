@@ -25,10 +25,10 @@ class ExtraFPNBlock(nn.Module):
     """
 
     def forward(
-        self,
-        results: List[Tensor],
-        x: List[Tensor],
-        names: List[str],
+            self,
+            results: List[Tensor],
+            x: List[Tensor],
+            names: List[str],
     ) -> Tuple[List[Tensor], List[str]]:
         pass
 
@@ -75,11 +75,11 @@ class FeaturePyramidNetwork(nn.Module):
     _version = 2
 
     def __init__(
-        self,
-        in_channels_list: List[int],
-        out_channels: int,
-        extra_blocks: Optional[ExtraFPNBlock] = None,
-        norm_layer: Optional[Callable[..., nn.Module]] = None,
+            self,
+            in_channels_list: List[int],
+            out_channels: int,
+            extra_blocks: Optional[ExtraFPNBlock] = None,
+            norm_layer: Optional[Callable[..., nn.Module]] = None,
     ):
         super().__init__()
         _log_api_usage_once(self)
@@ -110,14 +110,14 @@ class FeaturePyramidNetwork(nn.Module):
         self.extra_blocks = extra_blocks
 
     def _load_from_state_dict(
-        self,
-        state_dict,
-        prefix,
-        local_metadata,
-        strict,
-        missing_keys,
-        unexpected_keys,
-        error_msgs,
+            self,
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
     ):
         version = local_metadata.get("version", None)
 
@@ -210,10 +210,10 @@ class LastLevelMaxPool(ExtraFPNBlock):
     """
 
     def forward(
-        self,
-        x: List[Tensor],
-        y: List[Tensor],
-        names: List[str],
+            self,
+            x: List[Tensor],
+            y: List[Tensor],
+            names: List[str],
     ) -> Tuple[List[Tensor], List[str]]:
         names.append("pool")
         x.append(F.max_pool2d(x[-1], 1, 2, 0))
@@ -235,10 +235,10 @@ class LastLevelP6P7(ExtraFPNBlock):
         self.use_P5 = in_channels == out_channels
 
     def forward(
-        self,
-        p: List[Tensor],
-        c: List[Tensor],
-        names: List[str],
+            self,
+            p: List[Tensor],
+            c: List[Tensor],
+            names: List[str],
     ) -> Tuple[List[Tensor], List[str]]:
         p5, c5 = p[-1], c[-1]
         x = p5 if self.use_P5 else c5
@@ -247,3 +247,160 @@ class LastLevelP6P7(ExtraFPNBlock):
         p.extend([p6, p7])
         names.extend(["p6", "p7"])
         return p, names
+
+
+class TwoSidesFeaturePyramidNetwork(nn.Module):
+    """
+    two sides extention to the fpn class, as discribed in EfficientPS paper
+    """
+
+    def __init__(self, in_channels_list, out_channels, extra_blocks=None):
+        super(TwoSidesFeaturePyramidNetwork, self).__init__()
+        self.inner_blocks_1 = nn.ModuleList()
+        self.inner_blocks = nn.ModuleList()
+        self.layer_blocks = nn.ModuleList()
+        for in_channels in in_channels_list:
+            if in_channels == 0:
+                continue
+            inner_block_1_module = nn.Conv2d(in_channels, out_channels, 1)
+            inner_block_2_module = nn.Conv2d(in_channels, out_channels, 1)
+            layer_block_module = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+            self.inner_blocks_1.append(inner_block_1_module)
+            self.inner_blocks.append(inner_block_2_module)
+            self.layer_blocks.append(layer_block_module)
+
+        # initialize parameters now to avoid modifying the initialization of top_blocks
+        for m in self.children():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_uniform_(m.weight, a=1)
+                nn.init.constant_(m.bias, 0)
+
+        if extra_blocks is not None:
+            assert isinstance(extra_blocks, ExtraFPNBlock)
+        self.extra_blocks = extra_blocks
+
+    def forward(self, x):
+        """
+        Computes the TwoSidesFPN for a set of feature maps.
+        Arguments:
+            x (OrderedDict[Tensor]): feature maps for each feature level.
+        Returns:
+            results (OrderedDict[Tensor]): feature maps after FPN layers.
+                They are ordered from highest resolution first.
+        """
+        # unpack OrderedDict into two lists for easier handling
+        names = list(x.keys())
+        x = list(x.values())
+
+        # bottom up path:
+        parallel_pyramid = [self.inner_blocks_1[0](x[0])]
+
+        for i in range(1, len(x)):
+            down_sampled = F.max_pool2d(parallel_pyramid[-1], 2)
+            parallel_pyramid.append(self.inner_blocks_1[i](x[i]) + down_sampled)
+
+        last_inner = self.inner_blocks[-1](x[-1])
+        results = [self.layer_blocks[-1](last_inner + parallel_pyramid[-1])]
+        for i in reversed(range(len(x) - 1)):
+            inner_lateral = self.inner_blocks[i](x[i])
+            feat_shape = inner_lateral.shape[-2:]
+            inner_top_down = F.interpolate(last_inner, size=feat_shape, mode="nearest")
+            last_inner = inner_lateral + inner_top_down
+            results.insert(0, self.layer_blocks[i](last_inner + parallel_pyramid[i]))
+
+        if self.extra_blocks is not None:
+            results, names = self.extra_blocks(results, x, names)
+
+        # make it back an OrderedDict
+        out = OrderedDict([(k, v) for k, v in zip(names, results)])
+
+        return out
+
+
+class FeaturePyramidNetworkLateFusion(nn.Module):
+    """
+    Module that adds a FPN from on top of a set of feature maps. This is based on
+    `"Feature Pyramid Network for Object Detection" <https://arxiv.org/abs/1612.03144>`_.
+    The feature maps are currently supposed to be in increasing depth
+    order.
+    The input to the model is expected to be an OrderedDict[Tensor], containing
+    the feature maps on top of which the FPN will be added.
+    Arguments:
+        in_channels_list (list[int]): number of channels for each feature map that
+            is passed to the module
+        out_channels (int): number of channels of the FPN representation
+        extra_blocks (ExtraFPNBlock or None): if provided, extra operations will
+            be performed. It is expected to take the fpn features, the original
+            features and the names of the original features as input, and returns
+            a new list of feature maps and their corresponding names
+    Examples::
+        >>> m = torchvision.ops.FeaturePyramidNetwork([10, 20, 30], 5)
+        >>> # get some dummy data
+        >>> x = OrderedDict()
+        >>> x['feat0'] = torch.rand(1, 10, 64, 64)
+        >>> x['feat2'] = torch.rand(1, 20, 16, 16)
+        >>> x['feat3'] = torch.rand(1, 30, 8, 8)
+        >>> # compute the FPN on top of x
+        >>> output = m(x)
+        >>> print([(k, v.shape) for k, v in output.items()])
+        >>> # returns
+        >>>   [('feat0', torch.Size([1, 5, 64, 64])),
+        >>>    ('feat2', torch.Size([1, 5, 16, 16])),
+        >>>    ('feat3', torch.Size([1, 5, 8, 8]))]
+    """
+
+    def __init__(self, in_channels_list, out_channels, extra_blocks=None):
+        super(FeaturePyramidNetworkLateFusion, self).__init__()
+        self.inner_blocks = nn.ModuleList()
+        self.layer_blocks = nn.ModuleList()
+        for in_channels in in_channels_list:
+            if in_channels == 0:
+                continue
+            inner_block_module = nn.Conv2d(2 * in_channels, out_channels, 1)
+            layer_block_module = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+            self.inner_blocks.append(inner_block_module)
+            self.layer_blocks.append(layer_block_module)
+
+        # initialize parameters now to avoid modifying the initialization of top_blocks
+        for m in self.children():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_uniform_(m.weight, a=1)
+                nn.init.constant_(m.bias, 0)
+
+        if extra_blocks is not None:
+            assert isinstance(extra_blocks, ExtraFPNBlock)
+        self.extra_blocks = extra_blocks
+
+    def forward(self, x):
+        """
+        Computes the FPN for a set of feature maps.
+        Arguments:
+            x (OrderedDict[Tensor]): feature maps for each feature level.
+        Returns:
+            results (OrderedDict[Tensor]): feature maps after FPN layers.
+                They are ordered from highest resolution first.
+        """
+        # unpack OrderedDict into two lists for easier handling
+        names = list(x.keys())
+        x = list(x.values())
+
+        last_inner = self.inner_blocks[-1](x[-1])
+        results = [self.layer_blocks[-1](last_inner)]
+        for feature, inner_block, layer_block in zip(
+                x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
+        ):
+            if not inner_block:
+                continue
+            inner_lateral = inner_block(feature)
+            feat_shape = inner_lateral.shape[-2:]
+            inner_top_down = F.interpolate(last_inner, size=feat_shape, mode="nearest")
+            last_inner = inner_lateral + inner_top_down
+            results.insert(0, layer_block(last_inner))
+
+        if self.extra_blocks is not None:
+            results, names = self.extra_blocks(results, x, names)
+
+        # make it back an OrderedDict
+        out = OrderedDict([(k, v) for k, v in zip(names, results)])
+
+        return out
