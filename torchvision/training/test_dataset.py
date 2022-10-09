@@ -6,8 +6,8 @@ from tqdm import tqdm
 from torch.utils.data import RandomSampler
 from torch.utils.data import DataLoader
 
-from utils import create_image_mask_overlay_inference, collate_dict_fn, torch2numpy_image, load_yaml, mkdirs
-from runtime_utils import load_datasets
+from torchvision.training.utils import create_image_mask_overlay_inference, collate_dict_fn, torch2numpy_image, load_yaml, mkdirs
+from torchvision.training.runtime_utils import load_datasets
 
 
 def visualize_data(data_loader, out_dir, mode):

@@ -1,7 +1,8 @@
 import os
 import torch
-
 from copy import deepcopy
+
+from torch.hub import load_state_dict_from_url
 
 from torchvision import models
 from torchvision.training.utils import load_state_dict_layer_by_layer, freeze_models
@@ -9,8 +10,6 @@ from torchvision.training.fpn_factory import fpn_factory
 from torchvision.models.detection.mask_rcnn import MaskRCNN
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops import MultiScaleRoIAlign
-
-from torch.hub import load_state_dict_from_url
 
 
 class MaskRCNNInitNamespace:

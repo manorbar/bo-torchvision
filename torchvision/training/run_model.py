@@ -56,7 +56,7 @@ def train_epoch(model, data_loader, device, epoch, optimizer, vis_grads_freq=Non
     mean_loss = total_loss / (i + 1)
 
     # Log results to tensorboard
-    update_tb_epoch_train_results(summary_writer, {"losses_sums": losses_sums, "mean_loss": mean_loss, "epoch": epoch, \
+    update_tb_epoch_train_results(summary_writer, {"losses_sums": losses_sums, "mean_loss": mean_loss, "epoch": epoch,
                                                    "opt_state": optimizer.state_dict(),
                                                    "model_named_params": model.named_parameters()})
 
@@ -94,7 +94,7 @@ def eval_epoch(model, data_loader, device, epoch, config, summary_writer=None, p
                 highest_loss_samples_info_lst,
                 summary_writer,
                 highest_loss_vis_thresh=config["validation_params"]["highest_loss_vis_thresh"] if config[
-                                                                                                      "validation_params"].get(
+                    "validation_params"].get(
                     "highest_loss_vis_thresh") is not None else 2
             )
             model.train()
@@ -266,8 +266,9 @@ def train(config):
     if isinstance(config['train_params'].get('resume'), dict):  # Resume training from checkpoint if required
         print("Resuming from previous run")
         run_directory = config['train_params']['resume'].get('run_dir')
-        if not os.path.isdir(run_directory): raise NotADirectoryError(
-            f"Invalid run directory to resume: {config['train_params']['resume'].get('run_dir')}")
+        if not os.path.isdir(run_directory):
+            raise NotADirectoryError(
+                f"Invalid run directory to resume: {config['train_params']['resume'].get('run_dir')}")
         summary_dir, checkpoint_dir, tb_dir, model, optimizer, lr_scheduler, start_epoch = \
             resume(config['train_params']['resume'], model, optimizer, lr_scheduler)
     else:  # Create log and run directories

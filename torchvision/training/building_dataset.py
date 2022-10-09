@@ -1,20 +1,20 @@
-import torch
 import os
-import numpy as np
 import random
-
-from PIL import Image
-from tqdm import tqdm
-from glob import glob
 from collections import OrderedDict
 from itertools import chain
 from functools import reduce
 from threading import Lock
 from copy import deepcopy
-from torch.utils.data import Dataset
-from torchvision.transforms import functional as ftrans
 
-from utils import remove_paths
+import torch
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
+from glob import glob
+from torch.utils.data import Dataset
+
+from torchvision.transforms import functional as ftrans
+from torchvision.training.utils import remove_paths
 
 
 class CacheLru:
@@ -152,7 +152,7 @@ class BuildingsDataset(Dataset):
         self.images_list, self.depth_list = list() if self.input_type != "Depth" else None, list() if self.input_type != "RGB" else None
 
         for i in range(len(self.roots)):
-            imgs_paths = list(chain.from_iterable([glob(os.path.join(self.roots[i], 'images', f'*.{extn}')) \
+            imgs_paths = list(chain.from_iterable([glob(os.path.join(self.roots[i], 'images', f'*.{extn}'))
                                                    for extn in ['j2k', 'jpg', 'jpeg', 'tif',
                                                                 'tiff']])) if self.images_list is not None else None
             depth_paths = glob(os.path.join(self.roots[i], 'depth', f'*.npy')) if self.depth_list is not None else None
@@ -167,8 +167,10 @@ class BuildingsDataset(Dataset):
                     valid_flag = validate_gt(anno_paths[j], update_flag=validate_data.get("update_flag"))
                 if valid_flag or (not valid_flag and update_flag):
                     self.annotations_list.append(anno_paths[j])
-                    if self.images_list is not None: self.images_list.append(imgs_paths[j])
-                    if self.depth_list is not None: self.depth_list.append(depth_paths[j])
+                    if self.images_list is not None:
+                        self.images_list.append(imgs_paths[j])
+                    if self.depth_list is not None:
+                        self.depth_list.append(depth_paths[j])
 
         self.images_list = sorted(self.images_list) if self.images_list is not None else None
         self.depth_list = sorted(self.depth_list) if self.depth_list is not None else None
@@ -183,7 +185,7 @@ class BuildingsDataset(Dataset):
         remove_paths([gt_path, img_path, depth_path])
 
     @staticmethod
-    def get_bbox(annot_np: np.ndarray) -> (int, int, int, int):
+    def get_bbox(annot_np: np.ndarray) -> tuple(int, int, int, int):
         """
         Returns 2 coordinates that define the minimum bounding rectangle of an object
         :param annot_np: numpy.ndarray of shape (H, W) with a segmentation mask of an object
@@ -205,7 +207,7 @@ class BuildingsDataset(Dataset):
         return mask_sum > 4 and box_sum > 0 and len(target['labels']) > 0
 
     @staticmethod
-    def get_gt_target_arrays(gt: np.ndarray) -> (np.ndarray, np.ndarray, np.ndarray, np.ndarray):
+    def get_gt_target_arrays(gt: np.ndarray) -> tuple(np.ndarray, np.ndarray, np.ndarray, np.ndarray):
         """
         Gets the "target" dict from a numpy array annotations object
         :param gt: ndarray of annotations
@@ -252,7 +254,7 @@ class BuildingsDataset(Dataset):
         else:
             raise Exception(f"Invalid input_type={self.input_type}")
 
-    def __getitem__(self, item: int) -> (torch.Tensor, dict):
+    def __getitem__(self, item: int) -> tuple(torch.Tensor, dict):
         gt = np.load(self.annotations_list[item])
         pil_img = Image.open(self.images_list[item]).convert("RGB") if self.input_type != "Depth" else None
         depth_img = np.load(self.depth_list[item]).squeeze(-1) if self.input_type != "RGB" else None

@@ -1,17 +1,21 @@
 import os
 import pickle
 import sys
-from runtime_utils import save_model
-from torchvision.models.detection.mask_rcnn import MaskRCNN
-from building_models import models_registry
+
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from building_dataset import dataset_registry
-from building_transform import BuildingTransform
-from building_statistics_utils import MaskStatisticsTorch
+
+from torchvision.models.detection.mask_rcnn import MaskRCNN
+from torchvision.training.building_models import models_registry
+from torchvision.training.building_dataset import dataset_registry
+from torchvision.training.building_transform import BuildingTransform
+from torchvision.training.building_statistics_utils import MaskStatisticsTorch
+
+from runtime_utils import save_model
 from utils import create_empty_dict_key_if_required, collate_dict_fn
 from runtime_utils import get_input_type
-import numpy as np
+
 
 
 def eval_statistics_wrapper(checkpoint_dir, stats_pickle_path, config, epoch, optimizer, lr_scheduler, current_mean_loss, model=None, model_state_dict=None):

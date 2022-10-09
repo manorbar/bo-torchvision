@@ -12,11 +12,11 @@ from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision.utils import make_grid
 
-from utils import get_grads, vis_grads, numpy2torch_image, put_text, torch2numpy_image, \
+from torchvision.training.utils import get_grads, vis_grads, numpy2torch_image, put_text, torch2numpy_image, \
     create_image_mask_overlay_inference, load_state_dict_layer_by_layer
-from building_transform import BuildingTransform
-from building_dataset import dataset_registry
-from building_models import models_registry as models_reg
+from torchvision.training.building_transform import BuildingTransform
+from torchvision.training.building_dataset import dataset_registry
+from torchvision.training.building_models import models_registry as models_reg
 
 
 def parse_args():
