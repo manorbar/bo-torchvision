@@ -111,9 +111,10 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
 
 
-def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, predicted_mask_iou=None,
+def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_logg=True,
+                  predicted_mask_iou=None,
                   predicted_hdistance=None):
-    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor], Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor]
+    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor],bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor]
     """
     Args:
         proposals (list[BoxList])
@@ -184,6 +185,28 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
 
         hd_loss = torch.mean(torch.pow(torch.abs(hd_distances - predicted_hdistance), 2), ) * 10
     return mask_loss, maskiou_loss, hd_loss
+
+    # if use_edge_loss is given calculate edge loss and return it, else return None
+    edge_loss = None
+    if use_edge_loss:
+        # create edge filters
+        sobel_f_v = torch.tensor([[[1., 2., 1.], [0., 0., 0.], [-1., -2., -1.]]])
+        sobel_f_h = torch.tensor([[[1., 0., -1.], [2., 0., -2.], [1., 0., -1.]]])
+        filters = torch.cat((sobel_f_v, sobel_f_h)).unsqueeze(0)
+
+        # reshape mask targets and predictions and run edge detector on them
+        mt = mask_targets.unsqueeze(1)
+        mt = mt.expand(mt.shape[0], 2, mt.shape[2], mt.shape[3])
+        edge_targets = F.conv2d(mt, filters.cuda(), stride=1, padding=1).squeeze(1)
+        mp = mask_logits[torch.arange(labels.shape[0], device=labels.device), labels].unsqueeze(1)
+        # use sigmoid to squeeze output to be between 0 and 1
+        mp = torch.sigmoid(mp)
+        mp = mp.expand(mp.shape[0], 2, mp.shape[2], mp.shape[3])
+        edge_predictions = F.conv2d(mp, filters.cuda(), stride=1, padding=1).squeeze(1)
+
+        # add L2 loss between target edges to prediction edges
+        edge_loss = torch.mean(torch.pow(torch.abs(edge_predictions - edge_targets), 2), )
+    return mask_loss, edge_loss
 
 
 def keypoints_to_heatmap(keypoints, rois, heatmap_size):
@@ -578,6 +601,7 @@ class RoIHeads(nn.Module):
             keypoint_roi_pool=None,
             keypoint_head=None,
             keypoint_predictor=None,
+            use_edge_loss=False,
             mask_iou_head=None,
     ):
         super().__init__()
@@ -604,6 +628,7 @@ class RoIHeads(nn.Module):
         self.mask_head = mask_head
         self.mask_predictor = mask_predictor
         self.mask_iou_head = mask_iou_head
+        self.use_edge_loss = use_edge_loss
 
         self.keypoint_roi_pool = keypoint_roi_pool
         self.keypoint_head = keypoint_head
@@ -908,6 +933,13 @@ class RoIHeads(nn.Module):
                     loss_hd = {
                         "loss_hd": rcnn_loss_hd
                     }
+                rcnn_loss_mask, rcnn_loss_edge = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels,
+                                                               pos_matched_idxs, self.use_edge_loss)
+                loss_mask = {"loss_masosk": rcnn_loss_mask}
+                if self.use_edge_loss:
+                    loss_edge = {
+                        "loss_edge": rcnn_loss_edge
+                    }
             else:
                 labels = [r["labels"] for r in result]
                 masks_probs = maskrcnn_inference(mask_logits, labels)
@@ -915,6 +947,7 @@ class RoIHeads(nn.Module):
                     r["masks"] = mask_prob
 
             losses.update(loss_mask)
+            losses.update(loss_edge)
             losses.update(loss_edge)
             losses.update(loss_iou)
             losses.update(loss_hd)

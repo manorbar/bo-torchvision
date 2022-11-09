@@ -111,6 +111,7 @@ class MaskRCNN(FasterRCNN):
         mask_head (nn.Module): module that takes the cropped feature maps as input
         mask_predictor (nn.Module): module that takes the output of the mask_head and returns the
             segmentation mask logits
+        use_edge_loss (bool): signals if to use edge loss during training
 
     Example::
 
@@ -199,6 +200,7 @@ class MaskRCNN(FasterRCNN):
             mask_head=None,
             mask_predictor=None,
             mask_iou_head=None,
+            use_edge_loss=False,
             **kwargs,
     ):
 
@@ -229,7 +231,6 @@ class MaskRCNN(FasterRCNN):
         if mask_iou_head:
             mask_iou_feature_extractor = MaskIouFeatureExtractor()
             mask_iou_predictor = MaskIouPredictor(num_classes)
-
 
         super().__init__(
             backbone,
@@ -269,6 +270,7 @@ class MaskRCNN(FasterRCNN):
 
         self.roi_heads.mask_roi_pool = mask_roi_pool
         self.roi_heads.mask_head = mask_head
+        self.roi_heads.use_edge_loss = use_edge_loss
         self.roi_heads.mask_predictor = mask_predictor
 
 
