@@ -220,7 +220,7 @@ class MaskRCNN(FasterRCNN):
             mask_roi_pool = MultiScaleRoIAlign(featmap_names=["0", "1", "2", "3"], output_size=14, sampling_ratio=2)
 
         if mask_head is None:
-            mask_layers = (256, 256, 256, 256)
+            mask_layers = [256, 256, 256, 256]
             mask_dilation = 1
             mask_head = MaskRCNNHeads(out_channels, mask_layers, mask_dilation)
 
