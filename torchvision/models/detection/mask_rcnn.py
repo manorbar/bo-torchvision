@@ -199,8 +199,9 @@ class MaskRCNN(FasterRCNN):
             mask_roi_pool=None,
             mask_head=None,
             mask_predictor=None,
-            mask_iou_head=None,
             use_edge_loss=False,
+            mask_iou_head=None,
+            hd_predictor_head=None,
             **kwargs,
     ):
 
@@ -231,6 +232,10 @@ class MaskRCNN(FasterRCNN):
         if mask_iou_head:
             mask_iou_feature_extractor = MaskIouFeatureExtractor()
             mask_iou_predictor = MaskIouPredictor(num_classes)
+            hd_instance_predictor = None
+            if hd_predictor_head:
+                hd_instance_predictor = HDistancePredictor(num_classes)
+            mask_iou_head = ROIMaskIouHead(mask_iou_feature_extractor, mask_iou_predictor, hd_instance_predictor)
 
         super().__init__(
             backbone,
@@ -272,6 +277,7 @@ class MaskRCNN(FasterRCNN):
         self.roi_heads.mask_head = mask_head
         self.roi_heads.use_edge_loss = use_edge_loss
         self.roi_heads.mask_predictor = mask_predictor
+        self.roi_heads.mask_iou_head = mask_iou_head
 
 
 class MaskRCNNHeads(nn.Sequential):

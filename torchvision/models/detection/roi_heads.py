@@ -80,6 +80,37 @@ def maskrcnn_inference(x, labels):
     return mask_prob
 
 
+def mask_iou_inference(mask_logits, mask_features_pooled, labels, iou_head):
+    """
+    runs mask iou head during eval mode
+    :param mask_logits: tensor, output of mask predictor. The size of masks per image is given by the label list
+    :param mask_features_pooled: tensor, features pooled per object given from ROI pooling
+    :param labels: list of tensors per image
+    :param iou_head: ROIMaskIouHead object
+    :return: list of tensors with predicted iou mask score and hd score per object
+    """
+
+    num_masks = mask_logits.shape[0]
+    if num_masks != 0:
+        boxes_per_image = [len(l) for l in labels]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_logits_chosen = mask_logits[index, labels][:, None]
+        mask_iou_per_class, hdistance_per_class = iou_head(mask_features_pooled, mask_logits_chosen)
+        predicted_mask_iou = mask_iou_per_class[index, labels][:, None].flatten()
+        predicted_mask_iou = predicted_mask_iou.split(boxes_per_image, dim=0)
+        if hdistance_per_class is not None:
+            predicted_hd = hdistance_per_class[index, labels][:, None].flatten()
+            predicted_hd = predicted_hd.split(boxes_per_image, dim=0)
+        else:
+            predicted_hd = None
+    else:
+        predicted_mask_iou = torch.empty(size=(0,))
+        predicted_hd = torch.empty(size=(0,))
+
+    return predicted_mask_iou, predicted_hd
+
+
 def get_objects_by_labels(objects, labels):
     """
     Gets relevant objects slice according to labels positioning
@@ -111,15 +142,13 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
 
 
-def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_logg=True,
-                  predicted_mask_iou=None,
-                  predicted_hdistance=None):
-    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor],bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor]
+def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_loss=True,
+                  predicted_mask_iou=None, predicted_hdistance=None):
+    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor],bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor]]
     """
     Args:
         proposals (list[BoxList])
         mask_logits (Tensor)
-        targets (list[BoxList])
         predicted_mask_iou (tensor): predictions for mask iou
         predicted_hdistance (tensor): predictions for Hausdorff distance (normalized)
 
@@ -184,7 +213,6 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
                 hd_distances[i] = 0
 
         hd_loss = torch.mean(torch.pow(torch.abs(hd_distances - predicted_hdistance), 2), ) * 10
-    return mask_loss, maskiou_loss, hd_loss
 
     # if use_edge_loss is given calculate edge loss and return it, else return None
     edge_loss = None
@@ -206,7 +234,7 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
 
         # add L2 loss between target edges to prediction edges
         edge_loss = torch.mean(torch.pow(torch.abs(edge_predictions - edge_targets), 2), )
-    return mask_loss, edge_loss
+    return mask_loss, edge_loss, maskiou_loss, hd_loss
 
 
 def keypoints_to_heatmap(keypoints, rois, heatmap_size):
@@ -891,8 +919,7 @@ class RoIHeads(nn.Module):
 
             if self.mask_roi_pool is not None:
                 mask_features_pooled = self.mask_roi_pool(features, mask_proposals, image_shapes)
-                mask_features = self.mask_roi_pool(features, mask_proposals, image_shapes)
-                mask_features = self.mask_head(mask_features)
+                mask_features = self.mask_head(mask_features_pooled)
                 mask_logits = self.mask_predictor(mask_features)
             else:
                 raise Exception("Expected mask_roi_pool to be not None")
@@ -921,9 +948,11 @@ class RoIHeads(nn.Module):
                     predicted_mask_iou = None
                     predicted_hdistance = None
 
-                rcnn_loss_mask, rcnn_loss_iou, rcnn_loss_hd = maskrcnn_loss(mask_logits, mask_proposals, gt_masks,
-                                                                            gt_labels, pos_matched_idxs,
-                                                                            predicted_mask_iou, predicted_hdistance)
+                rcnn_loss_mask, rcnn_loss_edge, rcnn_loss_iou, rcnn_loss_hd = maskrcnn_loss(mask_logits, mask_proposals,
+                                                                                            gt_masks,
+                                                                                            gt_labels, pos_matched_idxs,
+                                                                                            predicted_mask_iou,
+                                                                                            predicted_hdistance)
                 loss_mask = {"loss_mask": rcnn_loss_mask}
                 if rcnn_loss_iou:
                     loss_iou = {
@@ -933,9 +962,6 @@ class RoIHeads(nn.Module):
                     loss_hd = {
                         "loss_hd": rcnn_loss_hd
                     }
-                rcnn_loss_mask, rcnn_loss_edge = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels,
-                                                               pos_matched_idxs, self.use_edge_loss)
-                loss_mask = {"loss_masosk": rcnn_loss_mask}
                 if self.use_edge_loss:
                     loss_edge = {
                         "loss_edge": rcnn_loss_edge
@@ -947,7 +973,6 @@ class RoIHeads(nn.Module):
                     r["masks"] = mask_prob
 
             losses.update(loss_mask)
-            losses.update(loss_edge)
             losses.update(loss_edge)
             losses.update(loss_iou)
             losses.update(loss_hd)
