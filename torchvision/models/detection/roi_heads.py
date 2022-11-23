@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -79,6 +80,53 @@ def maskrcnn_inference(x, labels):
     return mask_prob
 
 
+def mask_iou_inference(mask_logits, mask_features_pooled, labels, iou_head):
+    """
+    runs mask iou head during eval mode
+    :param mask_logits: tensor, output of mask predictor. The size of masks per image is given by the label list
+    :param mask_features_pooled: tensor, features pooled per object given from ROI pooling
+    :param labels: list of tensors per image
+    :param iou_head: ROIMaskIouHead object
+    :return: list of tensors with predicted iou mask score and hd score per object
+    """
+
+    num_masks = mask_logits.shape[0]
+    if num_masks != 0:
+        boxes_per_image = [len(l) for l in labels]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_logits_chosen = mask_logits[index, labels][:, None]
+        mask_iou_per_class, hdistance_per_class = iou_head(mask_features_pooled, mask_logits_chosen)
+        predicted_mask_iou = mask_iou_per_class[index, labels][:, None].flatten()
+        predicted_mask_iou = predicted_mask_iou.split(boxes_per_image, dim=0)
+        if hdistance_per_class is not None:
+            predicted_hd = hdistance_per_class[index, labels][:, None].flatten()
+            predicted_hd = predicted_hd.split(boxes_per_image, dim=0)
+        else:
+            predicted_hd = None
+    else:
+        predicted_mask_iou = torch.empty(size=(0,))
+        predicted_hd = torch.empty(size=(0,))
+
+    return predicted_mask_iou, predicted_hd
+
+
+def get_objects_by_labels(objects, labels):
+    """
+    Gets relevant objects slice according to labels positioning
+    :param objects: tensor of shape (N, C, shape of object) where the relevant slice is chosen by given labels
+    :param labels: tensor of labels of shape N
+    :return: tensor of (N, shape of object)
+    """
+    num_masks = objects.shape[0]
+    if type(labels) != torch.Tensor:
+        labels = torch.cat(labels)
+    index = torch.arange(num_masks, device=labels.device)
+    objects = objects[index, labels][:, None]
+
+    return objects
+
+
 def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     # type: (Tensor, Tensor, Tensor, int) -> Tensor
     """
@@ -94,13 +142,15 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
 
 
-def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_loss=True):
-    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor], bool) -> Tuple[Tensor, Tensor]
+def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs, use_edge_loss=True,
+                  predicted_mask_iou=None, predicted_hdistance=None):
+    # type: (Tensor, List[Tensor], List[Tensor], List[Tensor], List[Tensor],bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor]]
     """
     Args:
         proposals (list[BoxList])
         mask_logits (Tensor)
-        targets (list[BoxList])
+        predicted_mask_iou (tensor): predictions for mask iou
+        predicted_hdistance (tensor): predictions for Hausdorff distance (normalized)
 
     Return:
         mask_loss (Tensor): scalar tensor containing the loss
@@ -124,6 +174,46 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
         mask_logits[torch.arange(labels.shape[0], device=labels.device), labels], mask_targets
     )
 
+    # mask iou loss calculation if used
+    maskiou_loss: Optional[Tensor] = None
+    hd_loss: Optional[Tensor] = None
+    if predicted_mask_iou is not None:
+        mask_probs = F.softmax(mask_logits, 1)
+        mask_probs_chosen = get_objects_by_labels(mask_probs, labels).detach().squeeze(1)
+        mask_binarized = torch.where(mask_probs_chosen > 0.5, torch.tensor(1).to(mask_probs_chosen.device),
+                                     torch.tensor(0).to(mask_probs_chosen.device))
+        mask_targets_binarized = torch.where(mask_targets > 0.5, torch.tensor(1).to(mask_targets.device),
+                                             torch.tensor(0).to(mask_targets.device))
+
+        # Get the IOU GT
+        intersection = (mask_binarized & mask_targets_binarized.long()).sum(dim=(1, 2)).float()
+        union = (mask_binarized | mask_targets_binarized.long()).sum(dim=(1, 2)).float()
+        union += 1e-8  # this protects from dividing by 0 in case union is 0
+        iou = intersection / union
+
+        # Set iou prediction as required
+        predicted_mask_iou_examples = predicted_mask_iou.squeeze()
+
+        # Get maskiou loss
+        maskiou_loss = torch.mean(torch.pow(torch.abs(iou - predicted_mask_iou_examples), 2), ) * 10
+
+    if predicted_hdistance is not None:
+        # Get the HD score
+        hd_distances = torch.zeros_like(iou)
+        for i, (mask_b, mask_targets_b) in enumerate(zip(mask_binarized, mask_targets_binarized)):
+            nodes = torch.sqrt(torch.pow(
+                (torch.nonzero(mask_b == 1).unsqueeze(0) - torch.nonzero(mask_targets_b == 1).unsqueeze(1)).float(),
+                2).sum(axis=2))
+            if nodes.nelement() > 0:
+                min_max_first_direction = nodes.min(axis=0)[0].max()
+                min_max_second_direction = nodes.min(axis=1)[0].max()
+                hd_distances[i] = float(max(min_max_first_direction, min_max_second_direction)) / (
+                        mask_targets_b.shape[-1] * math.sqrt(2))
+            else:
+                hd_distances[i] = 0
+
+        hd_loss = torch.mean(torch.pow(torch.abs(hd_distances - predicted_hdistance), 2), ) * 10
+
     # if use_edge_loss is given calculate edge loss and return it, else return None
     edge_loss = None
     if use_edge_loss:
@@ -144,7 +234,7 @@ def maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs
 
         # add L2 loss between target edges to prediction edges
         edge_loss = torch.mean(torch.pow(torch.abs(edge_predictions - edge_targets), 2), )
-    return mask_loss, edge_loss
+    return mask_loss, edge_loss, maskiou_loss, hd_loss
 
 
 def keypoints_to_heatmap(keypoints, rois, heatmap_size):
@@ -336,7 +426,7 @@ def keypointrcnn_loss(keypoint_logits, proposals, gt_keypoints, keypoint_matched
     valid = torch.cat(valid, dim=0).to(dtype=torch.uint8)
     valid = torch.where(valid)[0]
 
-    # torch.mean (in binary_cross_entropy_with_logits) does'nt
+    # torch.mean (in binary_cross_entropy_with_logits) doesn't
     # accept empty tensors, so handle it sepaartely
     if keypoint_targets.numel() == 0 or len(valid) == 0:
         return keypoint_logits.sum() * 0
@@ -540,6 +630,7 @@ class RoIHeads(nn.Module):
             keypoint_head=None,
             keypoint_predictor=None,
             use_edge_loss=False,
+            mask_iou_head=None,
     ):
         super().__init__()
 
@@ -564,6 +655,7 @@ class RoIHeads(nn.Module):
         self.mask_roi_pool = mask_roi_pool
         self.mask_head = mask_head
         self.mask_predictor = mask_predictor
+        self.mask_iou_head = mask_iou_head
         self.use_edge_loss = use_edge_loss
 
         self.keypoint_roi_pool = keypoint_roi_pool
@@ -807,6 +899,7 @@ class RoIHeads(nn.Module):
                 )
 
         if self.has_mask():
+            selected_labels = []
             mask_proposals = [p["boxes"] for p in result]
             if self.training:
                 if matched_idxs is None:
@@ -819,28 +912,56 @@ class RoIHeads(nn.Module):
                 for img_id in range(num_images):
                     pos = torch.where(labels[img_id] > 0)[0]
                     mask_proposals.append(proposals[img_id][pos])
+                    selected_labels.append(labels[img_id][pos])
                     pos_matched_idxs.append(matched_idxs[img_id][pos])
             else:
                 pos_matched_idxs = None
 
             if self.mask_roi_pool is not None:
-                mask_features = self.mask_roi_pool(features, mask_proposals, image_shapes)
-                mask_features = self.mask_head(mask_features)
+                mask_features_pooled = self.mask_roi_pool(features, mask_proposals, image_shapes)
+                mask_features = self.mask_head(mask_features_pooled)
                 mask_logits = self.mask_predictor(mask_features)
             else:
                 raise Exception("Expected mask_roi_pool to be not None")
 
             loss_mask = {}
             loss_edge = {}
+            loss_iou = {}
+            loss_hd = {}
             if self.training:
                 if targets is None or pos_matched_idxs is None or mask_logits is None:
                     raise ValueError("targets, pos_matched_idxs, mask_logits cannot be None when training")
 
                 gt_masks = [t["masks"] for t in targets]
                 gt_labels = [t["labels"] for t in targets]
-                rcnn_loss_mask, rcnn_loss_edge = maskrcnn_loss(mask_logits, mask_proposals, gt_masks, gt_labels,
-                                                               pos_matched_idxs, self.use_edge_loss)
-                loss_mask = {"loss_masosk": rcnn_loss_mask}
+
+                if self.mask_iou_head is not None:
+                    selected_labels = torch.cat(selected_labels)
+                    selected_masks = get_objects_by_labels(mask_logits, selected_labels)
+                    mask_iou_per_class, hdistance_per_class = self.mask_iou_head(mask_features_pooled, selected_masks)
+                    predicted_mask_iou = get_objects_by_labels(mask_iou_per_class, selected_labels)
+                    if hdistance_per_class is not None:
+                        predicted_hdistance = get_objects_by_labels(hdistance_per_class, selected_labels)
+                    else:
+                        predicted_hdistance = None
+                else:
+                    predicted_mask_iou = None
+                    predicted_hdistance = None
+
+                rcnn_loss_mask, rcnn_loss_edge, rcnn_loss_iou, rcnn_loss_hd = maskrcnn_loss(mask_logits, mask_proposals,
+                                                                                            gt_masks,
+                                                                                            gt_labels, pos_matched_idxs,
+                                                                                            predicted_mask_iou,
+                                                                                            predicted_hdistance)
+                loss_mask = {"loss_mask": rcnn_loss_mask}
+                if rcnn_loss_iou:
+                    loss_iou = {
+                        "loss_iou": rcnn_loss_iou
+                    }
+                if rcnn_loss_hd:
+                    loss_hd = {
+                        "loss_hd": rcnn_loss_hd
+                    }
                 if self.use_edge_loss:
                     loss_edge = {
                         "loss_edge": rcnn_loss_edge
@@ -853,6 +974,8 @@ class RoIHeads(nn.Module):
 
             losses.update(loss_mask)
             losses.update(loss_edge)
+            losses.update(loss_iou)
+            losses.update(loss_hd)
 
         # keep none checks in if conditional so torchscript will conditionally
         # compile each branch

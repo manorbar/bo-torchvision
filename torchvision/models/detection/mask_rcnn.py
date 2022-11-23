@@ -2,6 +2,8 @@ from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 from torch import nn
+import torch
+import torch.nn.functional as F
 from torchvision.ops import MultiScaleRoIAlign
 
 from ...ops import misc as misc_nn_ops
@@ -198,6 +200,8 @@ class MaskRCNN(FasterRCNN):
             mask_head=None,
             mask_predictor=None,
             use_edge_loss=False,
+            mask_iou_head=None,
+            hd_predictor_head=None,
             **kwargs,
     ):
 
@@ -216,7 +220,7 @@ class MaskRCNN(FasterRCNN):
             mask_roi_pool = MultiScaleRoIAlign(featmap_names=["0", "1", "2", "3"], output_size=14, sampling_ratio=2)
 
         if mask_head is None:
-            mask_layers = (256, 256, 256, 256)
+            mask_layers = [256, 256, 256, 256]
             mask_dilation = 1
             mask_head = MaskRCNNHeads(out_channels, mask_layers, mask_dilation)
 
@@ -224,6 +228,14 @@ class MaskRCNN(FasterRCNN):
             mask_predictor_in_channels = 256  # == mask_layers[-1]
             mask_dim_reduced = 256
             mask_predictor = MaskRCNNPredictor(mask_predictor_in_channels, mask_dim_reduced, num_classes)
+
+        if mask_iou_head:
+            mask_iou_feature_extractor = MaskIouFeatureExtractor()
+            mask_iou_predictor = MaskIouPredictor(num_classes)
+            hd_instance_predictor = None
+            if hd_predictor_head:
+                hd_instance_predictor = HDistancePredictor(num_classes)
+            mask_iou_head = ROIMaskIouHead(mask_iou_feature_extractor, mask_iou_predictor, hd_instance_predictor)
 
         super().__init__(
             backbone,
@@ -265,6 +277,7 @@ class MaskRCNN(FasterRCNN):
         self.roi_heads.mask_head = mask_head
         self.roi_heads.use_edge_loss = use_edge_loss
         self.roi_heads.mask_predictor = mask_predictor
+        self.roi_heads.mask_iou_head = mask_iou_head
 
 
 class MaskRCNNHeads(nn.Sequential):
@@ -350,6 +363,106 @@ class MaskRCNNPredictor(nn.Sequential):
                 nn.init.kaiming_normal_(param, mode="fan_out", nonlinearity="relu")
             # elif "bias" in name:
             #     nn.init.constant_(param, 0)
+
+
+class MaskIouPredictor(nn.Module):
+
+    def __init__(self, num_classes):
+        super().__init__()
+
+        self.fc_maskiou = nn.Linear(1024, num_classes)
+        nn.init.normal_(self.fc_maskiou.weight, mean=0, std=0.01)
+        nn.init.constant_(self.fc_maskiou.bias, 0)
+
+    def forward(self, x):
+        maskiou = self.fc_maskiou(x)
+        maskiou = (torch.sigmoid(maskiou) + 1) / 2
+
+        return maskiou
+
+
+class HDistancePredictor(nn.Module):
+
+    def __init__(self, num_classes):
+        super().__init__()
+
+        self.fc_hdistance = nn.Linear(1024, num_classes)
+        nn.init.normal_(self.fc_hdistance.weight, mean=0, std=0.01)
+        nn.init.constant_(self.fc_hdistance.bias, 0)
+
+    def forward(self, x):
+        hdistance = self.fc_hdistance(x)
+        hdistance = torch.sigmoid(hdistance)
+
+        return hdistance
+
+
+class MaskIouFeatureExtractor(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+        # Feature extractor expects an input of 257 channels size 14x14
+        self.conv1 = torch.nn.Conv2d(257, 256, 3, 1, 1)
+        self.conv2 = torch.nn.Conv2d(256, 256, 3, 1, 1)
+        self.conv3 = torch.nn.Conv2d(256, 256, 3, 1, 1)
+        self.conv4 = torch.nn.Conv2d(256, 256, 3, 2, 1)
+        self.fc1 = nn.Linear(256 * 7 * 7, 1024)
+        self.fc2 = nn.Linear(1024, 1024)
+
+        for layer in [self.conv1, self.conv2, self.conv3, self.conv4]:
+            nn.init.kaiming_normal_(layer.weight, mode="fan_out", nonlinearity="relu")
+            nn.init.constant_(layer.bias, 0)
+
+        for layer in [self.fc1, self.fc2]:
+            nn.init.kaiming_uniform_(layer.weight, a=1)
+            nn.init.constant_(layer.bias, 0)
+
+    def forward(self, x, mask):
+        mask_pool = F.max_pool2d(mask, kernel_size=2, stride=2)
+        x = torch.cat((x, mask_pool), 1)
+
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.conv4(x)
+        x = F.relu(x)
+
+        x = x.flatten(start_dim=1)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+
+        return x
+
+
+class ROIMaskIouHead(nn.Module):
+
+    def __init__(self, mask_iou_feature_extractor, mask_iou_predictor, distance_predictor):
+        super().__init__()
+        self.mask_iou_feature_extractor = mask_iou_feature_extractor
+        self.mask_iou_predictor = mask_iou_predictor
+        self.hdistance_predictor = distance_predictor
+
+    def forward(self, features, selected_mask):
+        """
+        Forward pass for mask IOU head
+        :param features: list of tensors, feature maps
+        :param selected_mask: list of tensors, mask used as target
+        :return: list of tensors with predicted mask_iou score
+        """
+        x = self.mask_iou_feature_extractor(features, selected_mask)
+        predicted_maskiou = self.mask_iou_predictor(x)
+        if self.hdistance_predictor is not None:
+            predicted_hdistance = self.hdistance_predictor(x)
+        else:
+            predicted_hdistance = None
+
+        return predicted_maskiou, predicted_hdistance
 
 
 _COMMON_META = {
