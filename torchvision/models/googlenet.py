@@ -290,8 +290,6 @@ class GoogLeNet_Weights(WeightsEnum):
                     "acc@5": 89.530,
                 }
             },
-            "_ops": 1.498,
-            "_weight_size": 49.731,
             "_docs": """These weights are ported from the original paper.""",
         },
     )

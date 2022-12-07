@@ -75,9 +75,6 @@ class WeightsEnum(StrEnum):
                 return object.__getattribute__(self.value, name)
         return super().__getattr__(name)
 
-    def __deepcopy__(self, memodict=None):
-        return self
-
 
 def get_weight(name: str) -> WeightsEnum:
     """

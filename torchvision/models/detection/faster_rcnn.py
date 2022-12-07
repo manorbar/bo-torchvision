@@ -388,8 +388,6 @@ class FasterRCNN_ResNet50_FPN_Weights(WeightsEnum):
                     "box_map": 37.0,
                 }
             },
-            "_ops": 134.38,
-            "_weight_size": 159.743,
             "_docs": """These weights were produced by following a similar training recipe as on the paper.""",
         },
     )
@@ -409,8 +407,6 @@ class FasterRCNN_ResNet50_FPN_V2_Weights(WeightsEnum):
                     "box_map": 46.7,
                 }
             },
-            "_ops": 280.371,
-            "_weight_size": 167.104,
             "_docs": """These weights were produced using an enhanced training recipe to boost the model accuracy.""",
         },
     )
@@ -430,8 +426,6 @@ class FasterRCNN_MobileNet_V3_Large_FPN_Weights(WeightsEnum):
                     "box_map": 32.8,
                 }
             },
-            "_ops": 4.494,
-            "_weight_size": 74.239,
             "_docs": """These weights were produced by following a similar training recipe as on the paper.""",
         },
     )
@@ -451,8 +445,6 @@ class FasterRCNN_MobileNet_V3_Large_320_FPN_Weights(WeightsEnum):
                     "box_map": 22.8,
                 }
             },
-            "_ops": 0.719,
-            "_weight_size": 74.239,
             "_docs": """These weights were produced by following a similar training recipe as on the paper.""",
         },
     )

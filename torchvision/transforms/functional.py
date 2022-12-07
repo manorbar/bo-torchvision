@@ -20,12 +20,10 @@ from . import functional_pil as F_pil, functional_tensor as F_t
 
 class InterpolationMode(Enum):
     """Interpolation modes
-    Available interpolation methods are ``nearest``, ``nearest-exact``, ``bilinear``, ``bicubic``, ``box``, ``hamming``,
-    and ``lanczos``.
+    Available interpolation methods are ``nearest``, ``bilinear``, ``bicubic``, ``box``, ``hamming``, and ``lanczos``.
     """
 
     NEAREST = "nearest"
-    NEAREST_EXACT = "nearest-exact"
     BILINEAR = "bilinear"
     BICUBIC = "bicubic"
     # For PIL compatibility
@@ -52,7 +50,6 @@ pil_modes_mapping = {
     InterpolationMode.NEAREST: 0,
     InterpolationMode.BILINEAR: 2,
     InterpolationMode.BICUBIC: 3,
-    InterpolationMode.NEAREST_EXACT: 0,
     InterpolationMode.BOX: 4,
     InterpolationMode.HAMMING: 5,
     InterpolationMode.LANCZOS: 1,
@@ -167,7 +164,7 @@ def to_tensor(pic) -> Tensor:
 
     if pic.mode == "1":
         img = 255 * img
-    img = img.view(pic.size[1], pic.size[0], F_pil.get_image_num_channels(pic))
+    img = img.view(pic.size[1], pic.size[0], len(pic.getbands()))
     # put it from HWC to CHW format
     img = img.permute((2, 0, 1)).contiguous()
     if isinstance(img, torch.ByteTensor):
@@ -205,7 +202,7 @@ def pil_to_tensor(pic: Any) -> Tensor:
 
     # handle PIL Image
     img = torch.as_tensor(np.array(pic, copy=True))
-    img = img.view(pic.size[1], pic.size[0], F_pil.get_image_num_channels(pic))
+    img = img.view(pic.size[1], pic.size[0], len(pic.getbands()))
     # put it from HWC to CHW format
     img = img.permute((2, 0, 1))
     return img
@@ -419,8 +416,7 @@ def resize(
         interpolation (InterpolationMode): Desired interpolation enum defined by
             :class:`torchvision.transforms.InterpolationMode`.
             Default is ``InterpolationMode.BILINEAR``. If input is Tensor, only ``InterpolationMode.NEAREST``,
-            ``InterpolationMode.NEAREST_EXACT``, ``InterpolationMode.BILINEAR`` and ``InterpolationMode.BICUBIC`` are
-            supported.
+            ``InterpolationMode.BILINEAR`` and ``InterpolationMode.BICUBIC`` are supported.
             For backward compatibility integer values (e.g. ``PIL.Image[.Resampling].NEAREST``) are still accepted,
             but deprecated since 0.13 and will be removed in 0.15. Please use InterpolationMode enum.
         max_size (int, optional): The maximum allowed for the longer edge of
@@ -621,8 +617,7 @@ def resized_crop(
         interpolation (InterpolationMode): Desired interpolation enum defined by
             :class:`torchvision.transforms.InterpolationMode`.
             Default is ``InterpolationMode.BILINEAR``. If input is Tensor, only ``InterpolationMode.NEAREST``,
-            ``InterpolationMode.NEAREST_EXACT``, ``InterpolationMode.BILINEAR`` and ``InterpolationMode.BICUBIC`` are
-            supported.
+            ``InterpolationMode.BILINEAR`` and ``InterpolationMode.BICUBIC`` are supported.
             For backward compatibility integer values (e.g. ``PIL.Image[.Resampling].NEAREST``) are still accepted,
             but deprecated since 0.13 and will be removed in 0.15. Please use InterpolationMode enum.
         antialias (bool, optional): antialias flag. If ``img`` is PIL Image, the flag is ignored and anti-alias
@@ -1004,7 +999,7 @@ def _get_inverse_affine_matrix(
     #       RotateScaleShear(a, s, (sx, sy)) =
     #       = R(a) * S(s) * SHy(sy) * SHx(sx)
     #       = [ s*cos(a - sy)/cos(sy), s*(-cos(a - sy)*tan(sx)/cos(sy) - sin(a)), 0 ]
-    #         [ s*sin(a - sy)/cos(sy), s*(-sin(a - sy)*tan(sx)/cos(sy) + cos(a)), 0 ]
+    #         [ s*sin(a + sy)/cos(sy), s*(-sin(a - sy)*tan(sx)/cos(sy) + cos(a)), 0 ]
     #         [ 0                    , 0                                      , 1 ]
     # where R is a rotation matrix, S is a scaling matrix, and SHx and SHy are the shears:
     # SHx(s) = [1, -tan(s)] and SHy(s) = [1      , 0]

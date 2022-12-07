@@ -210,7 +210,7 @@ def cache(fn):
     """
     sentinel = object()
     out_cache = {}
-    exc_tb_cache = {}
+    exc_cache = {}
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -220,17 +220,14 @@ def cache(fn):
         if out is not sentinel:
             return out
 
-        exc_tb = exc_tb_cache.get(key, sentinel)
-        if exc_tb is not sentinel:
-            raise exc_tb[0].with_traceback(exc_tb[1])
+        exc = exc_cache.get(key, sentinel)
+        if exc is not sentinel:
+            raise exc
 
         try:
             out = fn(*args, **kwargs)
         except Exception as exc:
-            # We need to cache the traceback here as well. Otherwise, each re-raise will add the internal pytest
-            # traceback frames anew, but they will only be removed once. Thus, the traceback will be ginormous hiding
-            # the actual information in the noise. See https://github.com/pytest-dev/pytest/issues/10363 for details.
-            exc_tb_cache[key] = exc, exc.__traceback__
+            exc_cache[key] = exc
             raise exc
 
         out_cache[key] = out

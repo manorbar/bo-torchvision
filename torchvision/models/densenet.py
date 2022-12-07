@@ -15,6 +15,7 @@ from ._api import register_model, Weights, WeightsEnum
 from ._meta import _IMAGENET_CATEGORIES
 from ._utils import _ovewrite_named_param, handle_legacy_interface
 
+
 __all__ = [
     "DenseNet",
     "DenseNet121_Weights",
@@ -277,8 +278,6 @@ class DenseNet121_Weights(WeightsEnum):
                     "acc@5": 91.972,
                 }
             },
-            "_ops": 2.834,
-            "_weight_size": 30.845,
         },
     )
     DEFAULT = IMAGENET1K_V1
@@ -297,8 +296,6 @@ class DenseNet161_Weights(WeightsEnum):
                     "acc@5": 93.560,
                 }
             },
-            "_ops": 7.728,
-            "_weight_size": 110.369,
         },
     )
     DEFAULT = IMAGENET1K_V1
@@ -317,8 +314,6 @@ class DenseNet169_Weights(WeightsEnum):
                     "acc@5": 92.806,
                 }
             },
-            "_ops": 3.36,
-            "_weight_size": 54.708,
         },
     )
     DEFAULT = IMAGENET1K_V1
@@ -337,8 +332,6 @@ class DenseNet201_Weights(WeightsEnum):
                     "acc@5": 93.370,
                 }
             },
-            "_ops": 4.291,
-            "_weight_size": 77.373,
         },
     )
     DEFAULT = IMAGENET1K_V1
@@ -450,6 +443,7 @@ def densenet201(*, weights: Optional[DenseNet201_Weights] = None, progress: bool
 
 # The dictionary below is internal implementation detail and will be removed in v0.15
 from ._utils import _ModelURLs
+
 
 model_urls = _ModelURLs(
     {

@@ -12,6 +12,7 @@ import torch
 from ..utils import _log_api_usage_once
 from . import _video_opt
 
+
 try:
     import av
 

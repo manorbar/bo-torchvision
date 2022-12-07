@@ -156,34 +156,14 @@ void Video::_getDecoderParams(
 
 } // _get decoder params
 
-void Video::initFromFile(
-    std::string videoPath,
-    std::string stream,
-    int64_t numThreads) {
-  TORCH_CHECK(!initialized, "Video object can only be initialized once");
-  initialized = true;
-  params.uri = videoPath;
-  _init(stream, numThreads);
-}
-
-void Video::initFromMemory(
-    torch::Tensor videoTensor,
-    std::string stream,
-    int64_t numThreads) {
-  TORCH_CHECK(!initialized, "Video object can only be initialized once");
-  initialized = true;
-  callback = MemoryBuffer::getCallback(
-      videoTensor.data_ptr<uint8_t>(), videoTensor.size(0));
-  _init(stream, numThreads);
-}
-
-void Video::_init(std::string stream, int64_t numThreads) {
+Video::Video(std::string videoPath, std::string stream, int64_t numThreads) {
+  C10_LOG_API_USAGE_ONCE("torchvision.csrc.io.video.video.Video");
   // set number of threads global
   numThreads_ = numThreads;
   // parse stream information
   current_stream = _parseStream(stream);
   // note that in the initial call we want to get all streams
-  _getDecoderParams(
+  Video::_getDecoderParams(
       0, // video start
       0, // headerOnly
       std::get<0>(current_stream), // stream info - remove that
@@ -195,6 +175,11 @@ void Video::_init(std::string stream, int64_t numThreads) {
 
   std::string logMessage, logType;
 
+  // TODO: add read from memory option
+  params.uri = videoPath;
+  logType = "file";
+  logMessage = videoPath;
+
   // locals
   std::vector<double> audioFPS, videoFPS;
   std::vector<double> audioDuration, videoDuration, ccDuration, subsDuration;
@@ -205,8 +190,7 @@ void Video::_init(std::string stream, int64_t numThreads) {
   c10::Dict<std::string, std::vector<double>> subsMetadata;
 
   // callback and metadata defined in struct
-  DecoderInCallback tmp_callback = callback;
-  succeeded = decoder.init(params, std::move(tmp_callback), &metadata);
+  succeeded = decoder.init(params, std::move(callback), &metadata);
   if (succeeded) {
     for (const auto& header : metadata) {
       double fps = double(header.fps);
@@ -241,24 +225,16 @@ void Video::_init(std::string stream, int64_t numThreads) {
   streamsMetadata.insert("subtitles", subsMetadata);
   streamsMetadata.insert("cc", ccMetadata);
 
-  succeeded = setCurrentStream(stream);
+  succeeded = Video::setCurrentStream(stream);
   LOG(INFO) << "\nDecoder inited with: " << succeeded << "\n";
   if (std::get<1>(current_stream) != -1) {
     LOG(INFO)
         << "Stream index set to " << std::get<1>(current_stream)
         << ". If you encounter trouble, consider switching it to automatic stream discovery. \n";
   }
-}
-
-Video::Video(std::string videoPath, std::string stream, int64_t numThreads) {
-  C10_LOG_API_USAGE_ONCE("torchvision.csrc.io.video.video.Video");
-  if (!videoPath.empty()) {
-    initFromFile(videoPath, stream, numThreads);
-  }
 } // video
 
 bool Video::setCurrentStream(std::string stream = "video") {
-  TORCH_CHECK(initialized, "Video object has to be initialized first");
   if ((!stream.empty()) && (_parseStream(stream) != current_stream)) {
     current_stream = _parseStream(stream);
   }
@@ -280,23 +256,19 @@ bool Video::setCurrentStream(std::string stream = "video") {
   );
 
   // callback and metadata defined in Video.h
-  DecoderInCallback tmp_callback = callback;
-  return (decoder.init(params, std::move(tmp_callback), &metadata));
+  return (decoder.init(params, std::move(callback), &metadata));
 }
 
 std::tuple<std::string, int64_t> Video::getCurrentStream() const {
-  TORCH_CHECK(initialized, "Video object has to be initialized first");
   return current_stream;
 }
 
 c10::Dict<std::string, c10::Dict<std::string, std::vector<double>>> Video::
     getStreamMetadata() const {
-  TORCH_CHECK(initialized, "Video object has to be initialized first");
   return streamsMetadata;
 }
 
 void Video::Seek(double ts, bool fastSeek = false) {
-  TORCH_CHECK(initialized, "Video object has to be initialized first");
   // initialize the class variables used for seeking and retrurn
   _getDecoderParams(
       ts, // video start
@@ -310,14 +282,11 @@ void Video::Seek(double ts, bool fastSeek = false) {
   );
 
   // callback and metadata defined in Video.h
-  DecoderInCallback tmp_callback = callback;
-  succeeded = decoder.init(params, std::move(tmp_callback), &metadata);
-
+  succeeded = decoder.init(params, std::move(callback), &metadata);
   LOG(INFO) << "Decoder init at seek " << succeeded << "\n";
 }
 
 std::tuple<torch::Tensor, double> Video::Next() {
-  TORCH_CHECK(initialized, "Video object has to be initialized first");
   // if failing to decode simply return a null tensor (note, should we
   // raise an exeption?)
   double frame_pts_s;
@@ -376,8 +345,6 @@ std::tuple<torch::Tensor, double> Video::Next() {
 static auto registerVideo =
     torch::class_<Video>("torchvision", "Video")
         .def(torch::init<std::string, std::string, int64_t>())
-        .def("init_from_file", &Video::initFromFile)
-        .def("init_from_memory", &Video::initFromMemory)
         .def("get_current_stream", &Video::getCurrentStream)
         .def("set_current_stream", &Video::setCurrentStream)
         .def("get_metadata", &Video::getStreamMetadata)

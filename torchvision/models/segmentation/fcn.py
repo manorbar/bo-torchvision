@@ -71,8 +71,6 @@ class FCN_ResNet50_Weights(WeightsEnum):
                     "pixel_acc": 91.4,
                 }
             },
-            "_ops": 152.717,
-            "_weight_size": 135.009,
         },
     )
     DEFAULT = COCO_WITH_VOC_LABELS_V1
@@ -92,8 +90,6 @@ class FCN_ResNet101_Weights(WeightsEnum):
                     "pixel_acc": 91.9,
                 }
             },
-            "_ops": 232.738,
-            "_weight_size": 207.711,
         },
     )
     DEFAULT = COCO_WITH_VOC_LABELS_V1

@@ -552,8 +552,6 @@ class Raft_Large_Weights(WeightsEnum):
                 "Sintel-Train-Finalpass": {"epe": 2.7894},
                 "Kitti-Train": {"per_image_epe": 5.0172, "fl_all": 17.4506},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """These weights were ported from the original paper. They
             are trained on :class:`~torchvision.datasets.FlyingChairs` +
             :class:`~torchvision.datasets.FlyingThings3D`.""",
@@ -572,8 +570,6 @@ class Raft_Large_Weights(WeightsEnum):
                 "Sintel-Train-Finalpass": {"epe": 2.7161},
                 "Kitti-Train": {"per_image_epe": 4.5118, "fl_all": 16.0679},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """These weights were trained from scratch on
             :class:`~torchvision.datasets.FlyingChairs` +
             :class:`~torchvision.datasets.FlyingThings3D`.""",
@@ -592,8 +588,6 @@ class Raft_Large_Weights(WeightsEnum):
                 "Sintel-Test-Cleanpass": {"epe": 1.94},
                 "Sintel-Test-Finalpass": {"epe": 3.18},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """
                 These weights were ported from the original paper. They are
                 trained on :class:`~torchvision.datasets.FlyingChairs` +
@@ -618,8 +612,6 @@ class Raft_Large_Weights(WeightsEnum):
                 "Sintel-Test-Cleanpass": {"epe": 1.819},
                 "Sintel-Test-Finalpass": {"epe": 3.067},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """
                 These weights were trained from scratch. They are
                 pre-trained on :class:`~torchvision.datasets.FlyingChairs` +
@@ -644,8 +636,6 @@ class Raft_Large_Weights(WeightsEnum):
             "_metrics": {
                 "Kitti-Test": {"fl_all": 5.10},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """
                 These weights were ported from the original paper. They are
                 pre-trained on :class:`~torchvision.datasets.FlyingChairs` +
@@ -667,8 +657,6 @@ class Raft_Large_Weights(WeightsEnum):
             "_metrics": {
                 "Kitti-Test": {"fl_all": 5.19},
             },
-            "_ops": 211.007,
-            "_weight_size": 20.129,
             "_docs": """
                 These weights were trained from scratch. They are
                 pre-trained on :class:`~torchvision.datasets.FlyingChairs` +
@@ -710,8 +698,6 @@ class Raft_Small_Weights(WeightsEnum):
                 "Sintel-Train-Finalpass": {"epe": 3.2790},
                 "Kitti-Train": {"per_image_epe": 7.6557, "fl_all": 25.2801},
             },
-            "_ops": 47.655,
-            "_weight_size": 3.821,
             "_docs": """These weights were ported from the original paper. They
             are trained on :class:`~torchvision.datasets.FlyingChairs` +
             :class:`~torchvision.datasets.FlyingThings3D`.""",
@@ -729,8 +715,6 @@ class Raft_Small_Weights(WeightsEnum):
                 "Sintel-Train-Finalpass": {"epe": 3.2831},
                 "Kitti-Train": {"per_image_epe": 7.5978, "fl_all": 25.2369},
             },
-            "_ops": 47.655,
-            "_weight_size": 3.821,
             "_docs": """These weights were trained from scratch on
             :class:`~torchvision.datasets.FlyingChairs` +
             :class:`~torchvision.datasets.FlyingThings3D`.""",

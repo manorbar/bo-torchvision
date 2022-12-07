@@ -1,6 +1,6 @@
 import io
 from collections import OrderedDict
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import pytest
 import torch
@@ -11,7 +11,7 @@ from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.roi_heads import RoIHeads
 from torchvision.models.detection.rpn import AnchorGenerator, RegionProposalNetwork, RPNHead
 from torchvision.models.detection.transform import GeneralizedRCNNTransform
-from torchvision.ops import _register_onnx_ops
+from torchvision.ops._register_onnx_ops import _onnx_opset_version
 
 # In environments without onnxruntime we prefer to
 # invoke all tests in the repo and have this one skipped rather than fail.
@@ -27,15 +27,12 @@ class TestONNXExporter:
         self,
         model,
         inputs_list,
+        tolerate_small_mismatch=False,
         do_constant_folding=True,
         dynamic_axes=None,
         output_names=None,
         input_names=None,
-        opset_version: Optional[int] = None,
     ):
-        if opset_version is None:
-            opset_version = _register_onnx_ops.base_onnx_opset_version
-
         model.eval()
 
         onnx_io = io.BytesIO()
@@ -49,11 +46,10 @@ class TestONNXExporter:
             torch_onnx_input,
             onnx_io,
             do_constant_folding=do_constant_folding,
-            opset_version=opset_version,
+            opset_version=_onnx_opset_version,
             dynamic_axes=dynamic_axes,
             input_names=input_names,
             output_names=output_names,
-            verbose=True,
         )
         # validate the exported model with onnx runtime
         for test_inputs in inputs_list:
@@ -63,9 +59,9 @@ class TestONNXExporter:
                 test_ouputs = model(*test_inputs)
                 if isinstance(test_ouputs, torch.Tensor):
                     test_ouputs = (test_ouputs,)
-            self.ort_validate(onnx_io, test_inputs, test_ouputs)
+            self.ort_validate(onnx_io, test_inputs, test_ouputs, tolerate_small_mismatch)
 
-    def ort_validate(self, onnx_io, inputs, outputs):
+    def ort_validate(self, onnx_io, inputs, outputs, tolerate_small_mismatch=False):
 
         inputs, _ = torch.jit._flatten(inputs)
         outputs, _ = torch.jit._flatten(outputs)
@@ -85,7 +81,13 @@ class TestONNXExporter:
         ort_outs = ort_session.run(None, ort_inputs)
 
         for i in range(0, len(outputs)):
-            torch.testing.assert_close(outputs[i], ort_outs[i], rtol=1e-03, atol=1e-05)
+            try:
+                torch.testing.assert_allclose(outputs[i], ort_outs[i], rtol=1e-03, atol=1e-05)
+            except AssertionError as error:
+                if tolerate_small_mismatch:
+                    assert "(0.00%)" in str(error), str(error)
+                else:
+                    raise
 
     def test_nms(self):
         num_boxes = 100
@@ -138,39 +140,39 @@ class TestONNXExporter:
         model = ops.RoIAlign((5, 5), 1, -1)
         self.run_model(model, [(x, single_roi)])
 
+    @pytest.mark.skip(reason="ROIAlign with aligned=True is not supported in ONNX, but will be supported in opset 16.")
     def test_roi_align_aligned(self):
-        supported_onnx_version = _register_onnx_ops._onnx_opset_version_16
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 1.5, 1.5, 3, 3]], dtype=torch.float32)
         model = ops.RoIAlign((5, 5), 1, 2, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 0.2, 0.3, 4.5, 3.5]], dtype=torch.float32)
         model = ops.RoIAlign((5, 5), 0.5, 3, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 0.2, 0.3, 4.5, 3.5]], dtype=torch.float32)
         model = ops.RoIAlign((5, 5), 1.8, 2, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 0.2, 0.3, 4.5, 3.5]], dtype=torch.float32)
         model = ops.RoIAlign((2, 2), 2.5, 0, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 0.2, 0.3, 4.5, 3.5]], dtype=torch.float32)
         model = ops.RoIAlign((2, 2), 2.5, -1, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
+    @pytest.mark.skip(reason="Issue in exporting ROIAlign with aligned = True for malformed boxes")
     def test_roi_align_malformed_boxes(self):
-        supported_onnx_version = _register_onnx_ops._onnx_opset_version_16
         x = torch.randn(1, 1, 10, 10, dtype=torch.float32)
         single_roi = torch.tensor([[0, 2, 0.3, 1.5, 1.5]], dtype=torch.float32)
         model = ops.RoIAlign((5, 5), 1, 1, aligned=True)
-        self.run_model(model, [(x, single_roi)], opset_version=supported_onnx_version)
+        self.run_model(model, [(x, single_roi)])
 
     def test_roi_pool(self):
         x = torch.rand(1, 1, 10, 10, dtype=torch.float32)
@@ -318,6 +320,7 @@ class TestONNXExporter:
         self.run_model(
             model,
             [(images, features), (images2, test_features)],
+            tolerate_small_mismatch=True,
             input_names=["input1", "input2", "input3", "input4", "input5", "input6"],
             dynamic_axes={
                 "input1": [0, 1, 2, 3],
@@ -393,6 +396,7 @@ class TestONNXExporter:
         self.run_model(
             model,
             [(images, features), (images2, test_features)],
+            tolerate_small_mismatch=True,
             input_names=["input1", "input2", "input3", "input4", "input5", "input6"],
             dynamic_axes={
                 "input1": [0, 1, 2, 3],
@@ -438,6 +442,7 @@ class TestONNXExporter:
             input_names=["images_tensors"],
             output_names=["outputs"],
             dynamic_axes={"images_tensors": [0, 1, 2], "outputs": [0, 1, 2]},
+            tolerate_small_mismatch=True,
         )
         # Test exported model for an image with no detections on other images
         self.run_model(
@@ -446,6 +451,7 @@ class TestONNXExporter:
             input_names=["images_tensors"],
             output_names=["outputs"],
             dynamic_axes={"images_tensors": [0, 1, 2], "outputs": [0, 1, 2]},
+            tolerate_small_mismatch=True,
         )
 
     # Verify that paste_mask_in_image beahves the same in tracing.
@@ -500,6 +506,7 @@ class TestONNXExporter:
                 "scores": [0],
                 "masks": [0, 1, 2],
             },
+            tolerate_small_mismatch=True,
         )
         # Test exported model for an image with no detections on other images
         self.run_model(
@@ -514,6 +521,7 @@ class TestONNXExporter:
                 "scores": [0],
                 "masks": [0, 1, 2],
             },
+            tolerate_small_mismatch=True,
         )
 
     # Verify that heatmaps_to_keypoints behaves the same in tracing.
@@ -555,6 +563,7 @@ class TestONNXExporter:
             input_names=["images_tensors"],
             output_names=["outputs1", "outputs2", "outputs3", "outputs4"],
             dynamic_axes={"images_tensors": [0, 1, 2]},
+            tolerate_small_mismatch=True,
         )
 
         self.run_model(
@@ -563,6 +572,7 @@ class TestONNXExporter:
             input_names=["images_tensors"],
             output_names=["outputs1", "outputs2", "outputs3", "outputs4"],
             dynamic_axes={"images_tensors": [0, 1, 2]},
+            tolerate_small_mismatch=True,
         )
 
     def test_shufflenet_v2_dynamic_axes(self):
@@ -576,6 +586,7 @@ class TestONNXExporter:
             input_names=["input_images"],
             output_names=["output"],
             dynamic_axes={"input_images": {0: "batch_size"}, "output": {0: "batch_size"}},
+            tolerate_small_mismatch=True,
         )
 
 

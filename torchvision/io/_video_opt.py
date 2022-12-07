@@ -336,10 +336,7 @@ def _read_video_from_memory(
     _validate_pts(audio_pts_range)
 
     if not isinstance(video_data, torch.Tensor):
-        with warnings.catch_warnings():
-            # Ignore the warning because we actually dont modify the buffer in this function
-            warnings.filterwarnings("ignore", message="The given buffer is not writable")
-            video_data = torch.frombuffer(video_data, dtype=torch.uint8)
+        video_data = torch.frombuffer(video_data, dtype=torch.uint8)
 
     result = torch.ops.video_reader.read_video_from_memory(
         video_data,
@@ -381,10 +378,7 @@ def _read_video_timestamps_from_memory(
     is much faster than read_video(...)
     """
     if not isinstance(video_data, torch.Tensor):
-        with warnings.catch_warnings():
-            # Ignore the warning because we actually dont modify the buffer in this function
-            warnings.filterwarnings("ignore", message="The given buffer is not writable")
-            video_data = torch.frombuffer(video_data, dtype=torch.uint8)
+        video_data = torch.frombuffer(video_data, dtype=torch.uint8)
     result = torch.ops.video_reader.read_video_from_memory(
         video_data,
         0,  # seek_frame_margin
@@ -422,10 +416,7 @@ def _probe_video_from_memory(
     This function is torchscriptable
     """
     if not isinstance(video_data, torch.Tensor):
-        with warnings.catch_warnings():
-            # Ignore the warning because we actually dont modify the buffer in this function
-            warnings.filterwarnings("ignore", message="The given buffer is not writable")
-            video_data = torch.frombuffer(video_data, dtype=torch.uint8)
+        video_data = torch.frombuffer(video_data, dtype=torch.uint8)
     result = torch.ops.video_reader.probe_video_from_memory(video_data)
     vtimebase, vfps, vduration, atimebase, asample_rate, aduration = result
     info = _fill_info(vtimebase, vfps, vduration, atimebase, asample_rate, aduration)

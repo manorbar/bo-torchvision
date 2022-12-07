@@ -2,8 +2,6 @@ from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 from torch import nn
-import torch
-import torch.nn.functional as F
 from torchvision.ops import MultiScaleRoIAlign
 
 from ...ops import misc as misc_nn_ops
@@ -15,6 +13,7 @@ from ..resnet import resnet50, ResNet50_Weights
 from ._utils import overwrite_eps
 from .backbone_utils import _resnet_fpn_extractor, _validate_trainable_layers
 from .faster_rcnn import _default_anchorgen, FasterRCNN, FastRCNNConvFCHead, RPNHead
+
 
 __all__ = [
     "MaskRCNN",
@@ -111,7 +110,6 @@ class MaskRCNN(FasterRCNN):
         mask_head (nn.Module): module that takes the cropped feature maps as input
         mask_predictor (nn.Module): module that takes the output of the mask_head and returns the
             segmentation mask logits
-        use_edge_loss (bool): signals if to use edge loss during training
 
     Example::
 
@@ -162,47 +160,44 @@ class MaskRCNN(FasterRCNN):
     """
 
     def __init__(
-            self,
-            backbone,
-            num_classes=None,
-            # transform parameters
-            min_size=800,
-            max_size=1333,
-            image_mean=None,
-            image_std=None,
-            # RPN parameters
-            rpn_anchor_generator=None,
-            rpn_head=None,
-            rpn_pre_nms_top_n_train=2000,
-            rpn_pre_nms_top_n_test=1000,
-            rpn_post_nms_top_n_train=2000,
-            rpn_post_nms_top_n_test=1000,
-            rpn_nms_thresh=0.7,
-            rpn_fg_iou_thresh=0.7,
-            rpn_bg_iou_thresh=0.3,
-            rpn_batch_size_per_image=256,
-            rpn_positive_fraction=0.5,
-            rpn_score_thresh=0.0,
-            # Box parameters
-            box_roi_pool=None,
-            box_head=None,
-            box_predictor=None,
-            box_score_thresh=0.05,
-            box_nms_thresh=0.5,
-            box_detections_per_img=100,
-            box_fg_iou_thresh=0.5,
-            box_bg_iou_thresh=0.5,
-            box_batch_size_per_image=512,
-            box_positive_fraction=0.25,
-            bbox_reg_weights=None,
-            # Mask parameters
-            mask_roi_pool=None,
-            mask_head=None,
-            mask_predictor=None,
-            use_edge_loss=False,
-            mask_iou_head=None,
-            hd_predictor_head=None,
-            **kwargs,
+        self,
+        backbone,
+        num_classes=None,
+        # transform parameters
+        min_size=800,
+        max_size=1333,
+        image_mean=None,
+        image_std=None,
+        # RPN parameters
+        rpn_anchor_generator=None,
+        rpn_head=None,
+        rpn_pre_nms_top_n_train=2000,
+        rpn_pre_nms_top_n_test=1000,
+        rpn_post_nms_top_n_train=2000,
+        rpn_post_nms_top_n_test=1000,
+        rpn_nms_thresh=0.7,
+        rpn_fg_iou_thresh=0.7,
+        rpn_bg_iou_thresh=0.3,
+        rpn_batch_size_per_image=256,
+        rpn_positive_fraction=0.5,
+        rpn_score_thresh=0.0,
+        # Box parameters
+        box_roi_pool=None,
+        box_head=None,
+        box_predictor=None,
+        box_score_thresh=0.05,
+        box_nms_thresh=0.5,
+        box_detections_per_img=100,
+        box_fg_iou_thresh=0.5,
+        box_bg_iou_thresh=0.5,
+        box_batch_size_per_image=512,
+        box_positive_fraction=0.25,
+        bbox_reg_weights=None,
+        # Mask parameters
+        mask_roi_pool=None,
+        mask_head=None,
+        mask_predictor=None,
+        **kwargs,
     ):
 
         if not isinstance(mask_roi_pool, (MultiScaleRoIAlign, type(None))):
@@ -220,7 +215,7 @@ class MaskRCNN(FasterRCNN):
             mask_roi_pool = MultiScaleRoIAlign(featmap_names=["0", "1", "2", "3"], output_size=14, sampling_ratio=2)
 
         if mask_head is None:
-            mask_layers = [256, 256, 256, 256]
+            mask_layers = (256, 256, 256, 256)
             mask_dilation = 1
             mask_head = MaskRCNNHeads(out_channels, mask_layers, mask_dilation)
 
@@ -228,14 +223,6 @@ class MaskRCNN(FasterRCNN):
             mask_predictor_in_channels = 256  # == mask_layers[-1]
             mask_dim_reduced = 256
             mask_predictor = MaskRCNNPredictor(mask_predictor_in_channels, mask_dim_reduced, num_classes)
-
-        if mask_iou_head:
-            mask_iou_feature_extractor = MaskIouFeatureExtractor()
-            mask_iou_predictor = MaskIouPredictor(num_classes)
-            hd_instance_predictor = None
-            if hd_predictor_head:
-                hd_instance_predictor = HDistancePredictor(num_classes)
-            mask_iou_head = ROIMaskIouHead(mask_iou_feature_extractor, mask_iou_predictor, hd_instance_predictor)
 
         super().__init__(
             backbone,
@@ -275,9 +262,7 @@ class MaskRCNN(FasterRCNN):
 
         self.roi_heads.mask_roi_pool = mask_roi_pool
         self.roi_heads.mask_head = mask_head
-        self.roi_heads.use_edge_loss = use_edge_loss
         self.roi_heads.mask_predictor = mask_predictor
-        self.roi_heads.mask_iou_head = mask_iou_head
 
 
 class MaskRCNNHeads(nn.Sequential):
@@ -315,14 +300,14 @@ class MaskRCNNHeads(nn.Sequential):
                     nn.init.zeros_(layer.bias)
 
     def _load_from_state_dict(
-            self,
-            state_dict,
-            prefix,
-            local_metadata,
-            strict,
-            missing_keys,
-            unexpected_keys,
-            error_msgs,
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
     ):
         version = local_metadata.get("version", None)
 
@@ -330,7 +315,7 @@ class MaskRCNNHeads(nn.Sequential):
             num_blocks = len(self)
             for i in range(num_blocks):
                 for type in ["weight", "bias"]:
-                    old_key = f"{prefix}mask_fcn{i + 1}.{type}"
+                    old_key = f"{prefix}mask_fcn{i+1}.{type}"
                     new_key = f"{prefix}{i}.0.{type}"
                     if old_key in state_dict:
                         state_dict[new_key] = state_dict.pop(old_key)
@@ -365,106 +350,6 @@ class MaskRCNNPredictor(nn.Sequential):
             #     nn.init.constant_(param, 0)
 
 
-class MaskIouPredictor(nn.Module):
-
-    def __init__(self, num_classes):
-        super().__init__()
-
-        self.fc_maskiou = nn.Linear(1024, num_classes)
-        nn.init.normal_(self.fc_maskiou.weight, mean=0, std=0.01)
-        nn.init.constant_(self.fc_maskiou.bias, 0)
-
-    def forward(self, x):
-        maskiou = self.fc_maskiou(x)
-        maskiou = (torch.sigmoid(maskiou) + 1) / 2
-
-        return maskiou
-
-
-class HDistancePredictor(nn.Module):
-
-    def __init__(self, num_classes):
-        super().__init__()
-
-        self.fc_hdistance = nn.Linear(1024, num_classes)
-        nn.init.normal_(self.fc_hdistance.weight, mean=0, std=0.01)
-        nn.init.constant_(self.fc_hdistance.bias, 0)
-
-    def forward(self, x):
-        hdistance = self.fc_hdistance(x)
-        hdistance = torch.sigmoid(hdistance)
-
-        return hdistance
-
-
-class MaskIouFeatureExtractor(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-        # Feature extractor expects an input of 257 channels size 14x14
-        self.conv1 = torch.nn.Conv2d(257, 256, 3, 1, 1)
-        self.conv2 = torch.nn.Conv2d(256, 256, 3, 1, 1)
-        self.conv3 = torch.nn.Conv2d(256, 256, 3, 1, 1)
-        self.conv4 = torch.nn.Conv2d(256, 256, 3, 2, 1)
-        self.fc1 = nn.Linear(256 * 7 * 7, 1024)
-        self.fc2 = nn.Linear(1024, 1024)
-
-        for layer in [self.conv1, self.conv2, self.conv3, self.conv4]:
-            nn.init.kaiming_normal_(layer.weight, mode="fan_out", nonlinearity="relu")
-            nn.init.constant_(layer.bias, 0)
-
-        for layer in [self.fc1, self.fc2]:
-            nn.init.kaiming_uniform_(layer.weight, a=1)
-            nn.init.constant_(layer.bias, 0)
-
-    def forward(self, x, mask):
-        mask_pool = F.max_pool2d(mask, kernel_size=2, stride=2)
-        x = torch.cat((x, mask_pool), 1)
-
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = self.conv3(x)
-        x = F.relu(x)
-        x = self.conv4(x)
-        x = F.relu(x)
-
-        x = x.flatten(start_dim=1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-
-        return x
-
-
-class ROIMaskIouHead(nn.Module):
-
-    def __init__(self, mask_iou_feature_extractor, mask_iou_predictor, distance_predictor):
-        super().__init__()
-        self.mask_iou_feature_extractor = mask_iou_feature_extractor
-        self.mask_iou_predictor = mask_iou_predictor
-        self.hdistance_predictor = distance_predictor
-
-    def forward(self, features, selected_mask):
-        """
-        Forward pass for mask IOU head
-        :param features: list of tensors, feature maps
-        :param selected_mask: list of tensors, mask used as target
-        :return: list of tensors with predicted mask_iou score
-        """
-        x = self.mask_iou_feature_extractor(features, selected_mask)
-        predicted_maskiou = self.mask_iou_predictor(x)
-        if self.hdistance_predictor is not None:
-            predicted_hdistance = self.hdistance_predictor(x)
-        else:
-            predicted_hdistance = None
-
-        return predicted_maskiou, predicted_hdistance
-
-
 _COMMON_META = {
     "categories": _COCO_CATEGORIES,
     "min_size": (1, 1),
@@ -485,8 +370,6 @@ class MaskRCNN_ResNet50_FPN_Weights(WeightsEnum):
                     "mask_map": 34.6,
                 }
             },
-            "_ops": 134.38,
-            "_weight_size": 169.84,
             "_docs": """These weights were produced by following a similar training recipe as on the paper.""",
         },
     )
@@ -507,8 +390,6 @@ class MaskRCNN_ResNet50_FPN_V2_Weights(WeightsEnum):
                     "mask_map": 41.8,
                 }
             },
-            "_ops": 333.577,
-            "_weight_size": 177.219,
             "_docs": """These weights were produced using an enhanced training recipe to boost the model accuracy.""",
         },
     )
@@ -521,13 +402,13 @@ class MaskRCNN_ResNet50_FPN_V2_Weights(WeightsEnum):
     weights_backbone=("pretrained_backbone", ResNet50_Weights.IMAGENET1K_V1),
 )
 def maskrcnn_resnet50_fpn(
-        *,
-        weights: Optional[MaskRCNN_ResNet50_FPN_Weights] = None,
-        progress: bool = True,
-        num_classes: Optional[int] = None,
-        weights_backbone: Optional[ResNet50_Weights] = ResNet50_Weights.IMAGENET1K_V1,
-        trainable_backbone_layers: Optional[int] = None,
-        **kwargs: Any,
+    *,
+    weights: Optional[MaskRCNN_ResNet50_FPN_Weights] = None,
+    progress: bool = True,
+    num_classes: Optional[int] = None,
+    weights_backbone: Optional[ResNet50_Weights] = ResNet50_Weights.IMAGENET1K_V1,
+    trainable_backbone_layers: Optional[int] = None,
+    **kwargs: Any,
 ) -> MaskRCNN:
     """Mask R-CNN model with a ResNet-50-FPN backbone from the `Mask R-CNN
     <https://arxiv.org/abs/1703.06870>`_ paper.
@@ -629,13 +510,13 @@ def maskrcnn_resnet50_fpn(
     weights_backbone=("pretrained_backbone", ResNet50_Weights.IMAGENET1K_V1),
 )
 def maskrcnn_resnet50_fpn_v2(
-        *,
-        weights: Optional[MaskRCNN_ResNet50_FPN_V2_Weights] = None,
-        progress: bool = True,
-        num_classes: Optional[int] = None,
-        weights_backbone: Optional[ResNet50_Weights] = None,
-        trainable_backbone_layers: Optional[int] = None,
-        **kwargs: Any,
+    *,
+    weights: Optional[MaskRCNN_ResNet50_FPN_V2_Weights] = None,
+    progress: bool = True,
+    num_classes: Optional[int] = None,
+    weights_backbone: Optional[ResNet50_Weights] = None,
+    trainable_backbone_layers: Optional[int] = None,
+    **kwargs: Any,
 ) -> MaskRCNN:
     """Improved Mask R-CNN model with a ResNet-50-FPN backbone from the `Benchmarking Detection Transfer
     Learning with Vision Transformers <https://arxiv.org/abs/2111.11429>`_ paper.
@@ -704,6 +585,7 @@ def maskrcnn_resnet50_fpn_v2(
 
 # The dictionary below is internal implementation detail and will be removed in v0.15
 from .._utils import _ModelURLs
+
 
 model_urls = _ModelURLs(
     {
