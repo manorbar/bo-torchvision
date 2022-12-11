@@ -53,9 +53,7 @@ def write_version_file():
         f.write("    cuda = _check_cuda_version()\n")
 
 
-pytorch_dep = "torch"
-if os.getenv("PYTORCH_VERSION"):
-    pytorch_dep += "==" + os.getenv("PYTORCH_VERSION")
+pytorch_dep = "torch==1.14.*"
 
 requirements = [
     "typing_extensions",
