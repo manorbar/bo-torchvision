@@ -39,7 +39,7 @@ class BackboneWithFPN(nn.Module):
             out_channels: int,
             extra_blocks: Optional[ExtraFPNBlock] = None,
             norm_layer: Optional[Callable[..., nn.Module]] = None,
-            two_sides_fpn: bool = False
+            two_sides: bool = False
     ) -> None:
         super().__init__()
 
@@ -47,7 +47,7 @@ class BackboneWithFPN(nn.Module):
             extra_blocks = LastLevelMaxPool()
 
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
-        if two_sides_fpn:
+        if two_sides:
             self.fpn = TwoSidesFeaturePyramidNetwork(
                 in_channels_list=in_channels_list,
                 out_channels=out_channels,
@@ -60,7 +60,6 @@ class BackboneWithFPN(nn.Module):
                 extra_blocks=extra_blocks,
                 norm_layer=norm_layer,
             )
-
         self.out_channels = out_channels
 
     def forward(self, x: Tensor) -> Dict[str, Tensor]:
