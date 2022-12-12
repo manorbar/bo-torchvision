@@ -251,17 +251,17 @@ class LastLevelP6P7(ExtraFPNBlock):
 
 class TwoSidesFeaturePyramidNetwork(nn.Module):
     """
-    two sides extention to the fpn class, as discribed in EfficientPS paper
+    two sides extension to the fpn class, as described in EfficientPS paper
     """
 
-    def __init__(self, in_channels_list, out_channels, extra_blocks=None):
+    def __init__(self, in_channels_list: List[int], out_channels: int, extra_blocks: Optional[ExtraFPNBlock] = None):
         super(TwoSidesFeaturePyramidNetwork, self).__init__()
         self.inner_blocks_1 = nn.ModuleList()
         self.inner_blocks = nn.ModuleList()
         self.layer_blocks = nn.ModuleList()
         for in_channels in in_channels_list:
             if in_channels == 0:
-                continue
+                raise ValueError("in_channels=0 is currently not supported")
             inner_block_1_module = nn.Conv2d(in_channels, out_channels, 1)
             inner_block_2_module = nn.Conv2d(in_channels, out_channels, 1)
             layer_block_module = nn.Conv2d(out_channels, out_channels, 3, padding=1)
@@ -286,7 +286,7 @@ class TwoSidesFeaturePyramidNetwork(nn.Module):
             x (OrderedDict[Tensor]): feature maps for each feature level.
         Returns:
             results (OrderedDict[Tensor]): feature maps after FPN layers.
-                They are ordered from highest resolution first.
+                They are ordered from the highest resolution first.
         """
         # unpack OrderedDict into two lists for easier handling
         names = list(x.keys())
